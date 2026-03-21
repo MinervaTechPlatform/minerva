@@ -15,6 +15,21 @@ class IngestionRepository:
     def __init__(self, schema_name: str):
         self.schema_name = schema_name
 
+    async def create_job(self, document_id: uuid.UUID) -> IngestionJob:
+        """Create a new ingestion job record."""
+        job_id = uuid.uuid4()
+        async with get_connection(self.schema_name) as conn:
+            await conn.execute(
+                """
+                INSERT INTO ingestion_jobs (id, document_ids, status, created_on, last_updated_on)
+                VALUES ($1, $2, $3, $4, $5)
+                """,
+                job_id, [document_id], IngestionStatus.INITIATED, datetime.now(timezone.utc), datetime.now(timezone.utc)
+            )
+            # Fetch the newly created job
+            row = await conn.fetchrow("SELECT * FROM ingestion_jobs WHERE id = $1", job_id)
+            return IngestionJob.from_record(dict(row))
+
     async def get_job_and_document(self, job_id: uuid.UUID) -> tuple[Optional[IngestionJob], Optional[Document], Optional[uuid.UUID]]:
         """Load job, trigger document, and business ID."""
         async with get_connection(self.schema_name) as conn:
