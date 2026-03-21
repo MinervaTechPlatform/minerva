@@ -7,3 +7,5 @@ __pycache__
 infra/pulumi/node_modules
 poc/documents
 /tmp/data
+dashboard/node_modules
+dashboard/.next

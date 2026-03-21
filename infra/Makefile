@@ -42,8 +42,9 @@ help:
 	@echo "  make pulumi-config       - Set Pulumi config/secrets from .env"
 	@echo "  make preview             - Preview all components"
 	@echo "  make deploy              - Deploy all components"
-	@echo "  make preview-dashboard   - Preview dashboard (Amplify) only"
-	@echo "  make deploy-dashboard    - Deploy dashboard (Amplify) only"
+	@echo "  make preview-dashboard   - Preview dashboard (ECS Fargate) only"
+	@echo "  make deploy-dashboard    - Deploy dashboard (ECS Fargate) only"
+	@echo "  make push-dashboard      - Build+push dashboard image & force ECS redeploy (no Pulumi)"
 	@echo "  make preview-core        - Preview core API only"
 	@echo "  make deploy-core         - Deploy core API only"
 	@echo "  make preview-ingestion   - Preview ingestion worker only"
@@ -84,8 +85,6 @@ deploy: pulumi-config
 .PHONY: pulumi-config
 pulumi-config: login
 	@echo "Setting Pulumi config and secrets for stack: $(STACK)..."
-	@cd pulumi && $(DEPLOY_ENV) pulumi config set minerva:github_repo "$(GITHUB_REPO)" --stack $(STACK)
-	@cd pulumi && $(DEPLOY_ENV) pulumi config set --secret minerva:github_token "$(GITHUB_ACCESS_TOKEN)" --stack $(STACK)
 	@cd pulumi && $(DEPLOY_ENV) pulumi config set --secret minerva:auth_secret "$(AUTH_SECRET)" --stack $(STACK)
 	@cd pulumi && $(DEPLOY_ENV) pulumi config set --secret minerva:auth_google_id "$(AUTH_GOOGLE_ID)" --stack $(STACK)
 	@cd pulumi && $(DEPLOY_ENV) pulumi config set --secret minerva:auth_google_secret "$(AUTH_GOOGLE_SECRET)" --stack $(STACK)
@@ -160,7 +159,7 @@ push-core: login
 	fi
 	@$(DEPLOY_ENV) aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(CORE_REPO) || \
 		(echo "Error: AWS ECR login failed. Ensure your IAM user has 'ecr:GetAuthorizationToken' permissions."; exit 1)
-	docker build -t $(CORE_REPO):latest -f docker/Dockerfile.core ..
+	docker build --platform linux/amd64 -t $(CORE_REPO):latest -f docker/Dockerfile.core ..
 	docker push $(CORE_REPO):latest
 
 .PHONY: push-ingestion
@@ -173,9 +172,38 @@ push-ingestion: login
 	fi
 	@$(DEPLOY_ENV) aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(INGESTION_REPO) || \
 		(echo "Error: AWS ECR login failed. Ensure your IAM user has 'ecr:GetAuthorizationToken' permissions."; exit 1)
-	docker build -t $(INGESTION_REPO):latest -f docker/Dockerfile.ingestion ..
+	docker build --platform linux/amd64 -t $(INGESTION_REPO):latest -f docker/Dockerfile.ingestion ..
 	docker push $(INGESTION_REPO):latest
 
+.PHONY: push-dashboard
+push-dashboard: login
+	@echo "Pushing Dashboard to ECR and force-redeploying ECS..."
+	$(eval DASH_REPO := $(shell cd pulumi && $(DEPLOY_ENV) pulumi stack output dashboard_repo_url --stack $(STACK) 2>/dev/null))
+	@if [ -z "$(DASH_REPO)" ]; then \
+		echo "Error: dashboard_repo_url not found in stack outputs. Have you run 'make deploy' yet?"; \
+		exit 1; \
+	fi
+	@$(DEPLOY_ENV) aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(DASH_REPO) || \
+		(echo "Error: AWS ECR login failed."; exit 1)
+	docker build --platform linux/amd64 -t $(DASH_REPO):latest -f docker/Dockerfile.dashboard ..
+	docker push $(DASH_REPO):latest
+	$(eval CLUSTER := $(shell $(DEPLOY_ENV) aws ecs list-clusters --region $(AWS_REGION) --query 'clusterArns[?contains(@, `minerva-$(STACK)`)] | [0]' --output text 2>/dev/null))
+	$(eval SERVICE := $(shell $(DEPLOY_ENV) aws ecs list-services --cluster $(CLUSTER) --region $(AWS_REGION) --query 'serviceArns[?contains(@, `dashboard`)] | [0]' --output text 2>/dev/null))
+	@if [ -z "$(SERVICE)" ]; then \
+		echo "Error: Could not find dashboard ECS service. Have you run 'make deploy-dashboard' yet?"; \
+		exit 1; \
+	fi
+	@echo "Force-redeploying ECS service: $(SERVICE)"
+	@$(DEPLOY_ENV) aws ecs update-service \
+		--cluster $(CLUSTER) \
+		--service $(SERVICE) \
+		--force-new-deployment \
+		--region $(AWS_REGION) \
+		--no-cli-pager \
+		--query 'service.{status:status,desiredCount:desiredCount,runningCount:runningCount}' \
+		--output table
+	@echo "Dashboard deploy triggered. Monitor progress: aws ecs describe-services --cluster $(CLUSTER) --services $(SERVICE) --region $(AWS_REGION)"
+
 .PHONY: push
-push: push-core push-ingestion
+push: push-core push-ingestion push-dashboard
 	@echo "All services pushed to ECR."

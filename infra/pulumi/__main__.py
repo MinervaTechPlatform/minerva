@@ -29,10 +29,8 @@ if deploy_ingestion:
 
 if deploy_dashboard:
     dashboard = DashboardApp(f"{prefix}-dashboard", env, base)
-    pulumi.export("dashboard_app_id", dashboard.app_id)
-    pulumi.export("dashboard_default_domain", dashboard.default_domain)
-    pulumi.export("dashboard_develop_url", dashboard.develop_url)
-    pulumi.export("dashboard_gowtham_url", dashboard.gowtham_url)
+    pulumi.export("dashboard_url", dashboard.service_url)
+    pulumi.export("dashboard_repo_url", dashboard.repo.repository_url)
 
 # Final exports
 pulumi.export("db_endpoint", base.db.address)
