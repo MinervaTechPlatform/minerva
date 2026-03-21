@@ -4,7 +4,7 @@ SHELL := /bin/bash
 #   make setup AWS_ACCESS_KEY_ID=xxx AWS_SECRET_ACCESS_KEY=yyy PULUMI_CONFIG_PASSPHRASE=zzz
 
 # Load environment variables from .env
-ENV_FILE := ../.env
+ENV_FILE := .env
 ifneq ("$(wildcard $(ENV_FILE))","")
 include $(ENV_FILE)
 export $(shell sed 's/=.*//' $(ENV_FILE))
@@ -36,11 +36,19 @@ DEPLOY_ENV := AWS_ACCESS_KEY_ID=$(AWS_ACCESS_KEY_ID) \
 .PHONY: help
 help:
 	@echo "Available commands:"
-	@echo "  make aws-config - Configure AWS CLI"
-	@echo "  make login      - Login to Pulumi S3 backend"
-	@echo "  make init       - Initialize Pulumi stack"
-	@echo "  make deploy     - Deploy the infrastructure (pulumi up)"
-	@echo "  make setup      - Run all steps (config -> login -> init -> deploy)"
+	@echo "  make aws-config          - Configure AWS CLI"
+	@echo "  make login               - Login to Pulumi S3 backend"
+	@echo "  make init                - Initialize Pulumi stack"
+	@echo "  make pulumi-config       - Set Pulumi config/secrets from .env"
+	@echo "  make preview             - Preview all components"
+	@echo "  make deploy              - Deploy all components"
+	@echo "  make preview-dashboard   - Preview dashboard (Amplify) only"
+	@echo "  make deploy-dashboard    - Deploy dashboard (Amplify) only"
+	@echo "  make preview-core        - Preview core API only"
+	@echo "  make deploy-core         - Deploy core API only"
+	@echo "  make preview-ingestion   - Preview ingestion worker only"
+	@echo "  make deploy-ingestion    - Deploy ingestion worker only"
+	@echo "  make setup               - Run all steps (config -> login -> init -> pulumi-config -> deploy)"
 
 .PHONY: aws-config
 aws-config:
@@ -51,7 +59,7 @@ aws-config:
 
 .PHONY: login
 login:
-	@set -a; source .env; set +a;
+# 	@set -a; source .env; set +a;
 	@echo "Logging into Pulumi backend: $(PULUMI_STATE_BUCKET)..."
 	@$(DEPLOY_ENV) pulumi login $(PULUMI_STATE_BUCKET)
 
@@ -61,30 +69,78 @@ init: login
 	cd pulumi && ($(DEPLOY_ENV) pulumi stack init $(STACK) || echo "Stack already exists, proceeding...")
 
 .PHONY: preview
-preview: login
-	@echo "Previewing infrastructure in stack: $(STACK)..."
-	@set -a; source .env; set +a;
+preview: pulumi-config
+	@echo "Previewing all infrastructure in stack: $(STACK)..."
 	cd pulumi && $(DEPLOY_ENV) pulumi up --stack $(STACK)
-	
+
 .PHONY: deploy
-deploy: login
+deploy: pulumi-config
 	@echo "Deploying infrastructure to stack: $(STACK)..."
 	cd pulumi && $(DEPLOY_ENV) pulumi up --yes --stack $(STACK)
 
+# Component-specific previews and deploys — target one service using Pulumi --target
+# (This prevents deleting other components like config overrides would)
+
+.PHONY: pulumi-config
+pulumi-config: login
+	@echo "Setting Pulumi config and secrets for stack: $(STACK)..."
+	@cd pulumi && $(DEPLOY_ENV) pulumi config set minerva:github_repo "$(GITHUB_REPO)" --stack $(STACK)
+	@cd pulumi && $(DEPLOY_ENV) pulumi config set --secret minerva:github_token "$(GITHUB_ACCESS_TOKEN)" --stack $(STACK)
+	@cd pulumi && $(DEPLOY_ENV) pulumi config set --secret minerva:auth_secret "$(AUTH_SECRET)" --stack $(STACK)
+	@cd pulumi && $(DEPLOY_ENV) pulumi config set --secret minerva:auth_google_id "$(AUTH_GOOGLE_ID)" --stack $(STACK)
+	@cd pulumi && $(DEPLOY_ENV) pulumi config set --secret minerva:auth_google_secret "$(AUTH_GOOGLE_SECRET)" --stack $(STACK)
+	@echo "Pulumi config set successfully."
+
+.PHONY: preview-dashboard
+preview-dashboard: pulumi-config
+	@echo "Previewing dashboard only in stack: $(STACK)..."
+	cd pulumi && $(DEPLOY_ENV) pulumi up --stack $(STACK) \
+		--target "**minerva-$(STACK)-dashboard**" --target-dependents
+
+.PHONY: deploy-dashboard
+deploy-dashboard: pulumi-config
+	@echo "Deploying dashboard only to stack: $(STACK)..."
+	cd pulumi && $(DEPLOY_ENV) pulumi up --yes --stack $(STACK) \
+		--target "**minerva-$(STACK)-dashboard**" --target-dependents
+
+.PHONY: preview-core
+preview-core: pulumi-config
+	@echo "Previewing core API only in stack: $(STACK)..."
+	cd pulumi && $(DEPLOY_ENV) pulumi up --stack $(STACK) \
+		--target "**minerva-$(STACK)-core**" --target-dependents
+
+.PHONY: deploy-core
+deploy-core: pulumi-config
+	@echo "Deploying core API only to stack: $(STACK)..."
+	cd pulumi && $(DEPLOY_ENV) pulumi up --yes --stack $(STACK) \
+		--target "**minerva-$(STACK)-core**" --target-dependents
+
+.PHONY: preview-ingestion
+preview-ingestion: pulumi-config
+	@echo "Previewing ingestion worker only in stack: $(STACK)..."
+	cd pulumi && $(DEPLOY_ENV) pulumi up --stack $(STACK) \
+		--target "**minerva-$(STACK)-ingestion**" --target-dependents
+
+.PHONY: deploy-ingestion
+deploy-ingestion: pulumi-config
+	@echo "Deploying ingestion worker only to stack: $(STACK)..."
+	cd pulumi && $(DEPLOY_ENV) pulumi up --yes --stack $(STACK) \
+		--target "**minerva-$(STACK)-ingestion**" --target-dependents
+
 .PHONY: setup
-setup: aws-config init deploy
+setup: aws-config init pulumi-config deploy
 	@echo "Deployment complete."
 
 .PHONY: destroy
 destroy: login
 	@echo "Destroying infrastructure for stack: $(STACK)..."
-	@set -a; source .env; set +a;
+# 	@set -a; source .env; set +a;
 	cd pulumi && $(DEPLOY_ENV) pulumi destroy --yes --stack $(STACK)
 
 .PHONY: delete-stack
 delete-stack:
 	@echo "Deleting stack: $(STACK)..."
-	@set -a; source .env; set +a;
+# 	@set -a; source .env; set +a;
 	cd pulumi && $(DEPLOY_ENV) pulumi stack rm $(STACK) --yes
 
 .PHONY: nuke-stack

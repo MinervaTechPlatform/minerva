@@ -27,9 +27,12 @@ if deploy_ingestion:
     pulumi.export("ingestion_task_arn", ingestion.task_def_arn)
     pulumi.export("ingestion_repo_url", ingestion.repo.repository_url)
 
-# if deploy_dashboard:
-#     dashboard = DashboardApp(f"{prefix}-dashboard", env)
-#     pulumi.export("dashboard_url", dashboard.default_domain)
+if deploy_dashboard:
+    dashboard = DashboardApp(f"{prefix}-dashboard", env, base)
+    pulumi.export("dashboard_app_id", dashboard.app_id)
+    pulumi.export("dashboard_default_domain", dashboard.default_domain)
+    pulumi.export("dashboard_develop_url", dashboard.develop_url)
+    pulumi.export("dashboard_gowtham_url", dashboard.gowtham_url)
 
 # Final exports
 pulumi.export("db_endpoint", base.db.address)

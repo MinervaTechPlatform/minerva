@@ -17,4 +17,4 @@ template:
       default: "true"
     minerva:deploy_dashboard:
       description: Whether to deploy the amplify dashboard
-      default: "false"
+      default: "true"
