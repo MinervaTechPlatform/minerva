@@ -2,7 +2,7 @@ import pulumi
 import pulumi_aws as aws
 
 class CoreService(pulumi.ComponentResource):
-    def __init__(self, name: str, env: str, base_infra, opts: pulumi.ResourceOptions = None):
+    def __init__(self, name: str, env: str, base_infra, ingestion_task_def_arn: pulumi.Input[str], opts: pulumi.ResourceOptions = None):
         super().__init__("minerva:core:CoreService", name, {}, opts)
 
         self.tags = {
@@ -18,7 +18,37 @@ class CoreService(pulumi.ComponentResource):
             opts=pulumi.ResourceOptions(parent=self)
         )
 
-        # 2. Log Group
+        # 2. Ingestion Task Role (Permissions for triggering ingestion)
+        self.task_role = aws.iam.Role(
+            f"{name}-task-role",
+            assume_role_policy='''{
+                "Version": "2012-10-17",
+                "Statement": [{"Effect": "Allow", "Principal": {"Service": "ecs-tasks.amazonaws.com"}, "Action": "sts:AssumeRole"}]
+            }''',
+            tags=self.tags,
+            opts=pulumi.ResourceOptions(parent=self)
+        )
+
+        aws.iam.RolePolicy(
+            f"{name}-ecs-run-task-policy",
+            role=self.task_role.name,
+            policy=pulumi.Output.all(base_infra.cluster.arn, f"arn:aws:ecs:{aws.get_region().name}:*:task-definition/*").apply(lambda args: f'''{{
+                "Version": "2012-10-17",
+                "Statement": [
+                    {{
+                        "Effect": "Allow",
+                        "Action": [
+                            "ecs:RunTask",
+                            "iam:PassRole"
+                        ],
+                        "Resource": "*"
+                    }}
+                ]
+            }}'''),
+            opts=pulumi.ResourceOptions(parent=self)
+        )
+
+        # 3. Log Group
         self.log_group = aws.cloudwatch.LogGroup(
             f"/ecs/{name}-log-group",
             retention_in_days=3,
@@ -83,6 +113,7 @@ class CoreService(pulumi.ComponentResource):
             cpu="512",
             memory="1024",
             execution_role_arn=base_infra.ecs_execution_role.arn,
+            task_role_arn=self.task_role.arn,
             tags=self.tags,
             container_definitions=pulumi.Output.format('''[
                 {{
@@ -91,7 +122,10 @@ class CoreService(pulumi.ComponentResource):
                     "portMappings": [{{"containerPort": 8000, "hostPort": 8000}}],
                     "environment": [
                         {{"name": "DATABASE_URL", "value": "{1}"}},
-                        {{"name": "ENV", "value": "production"}}
+                        {{"name": "ENV", "value": "production"}},
+                        {{"name": "ECS_CLUSTER_NAME", "value": "{4}"}},
+                        {{"name": "PRIVATE_SUBNET_IDS", "value": "{5}"}},
+                        {{"name": "INGESTION_TASK_DEF_ARN", "value": "{6}"}}
                     ],
                     "logConfiguration": {{
                          "logDriver": "awslogs",
@@ -102,7 +136,7 @@ class CoreService(pulumi.ComponentResource):
                          }}
                     }}
                 }}
-            ]''', self.repo.repository_url, base_infra.db_url, self.log_group.name, aws.get_region().region),
+            ]''', self.repo.repository_url, base_infra.db_url, self.log_group.name, aws.get_region().name, base_infra.cluster.name, base_infra.vpc.private_subnet_ids.apply(lambda ids: ",".join(ids)), ingestion_task_def_arn),
             opts=pulumi.ResourceOptions(parent=self)
         )
 

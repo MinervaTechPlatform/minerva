@@ -37,7 +37,7 @@ class IngestionWorker(pulumi.ComponentResource):
 
         # 3. Log Group
         self.log_group = aws.cloudwatch.LogGroup(
-            f"/ecs/{name}-ingestion",
+            f"/ecs/{name}-log-group",
             retention_in_days=7,
             tags=self.tags,
             opts=pulumi.ResourceOptions(parent=self)
