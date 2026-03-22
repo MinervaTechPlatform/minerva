@@ -1,0 +1,33 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "MinervaFullAccess",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:*",
+                "ecs:*",
+                "rds:*",
+                "s3:*",
+                "ecr:*",
+                "iam:*",
+                "elasticloadbalancing:*",
+                "logs:*",
+                "application-autoscaling:*",
+                "sts:AssumeRole"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "BillingFullAccess",
+            "Effect": "Allow",
+            "Action": [
+                "billing:*",
+                "payments:*",
+                "purchase-orders:*",
+                "tax:*"
+            ],
+            "Resource": "*"
+        }
+    ]
+}

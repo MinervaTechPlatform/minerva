@@ -1,0 +1,51 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "PulumiStateAndSecrets",
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetBucket*",
+                "s3:ListBucket*",
+                "s3:GetObject*",
+                "s3:PutObject*",
+                "s3:DeleteObject*",
+                "kms:Encrypt",
+                "kms:Decrypt",
+                "kms:GenerateDataKey*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "ComputeAndNetwork",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:*",
+                "ecs:*",
+                "elasticloadbalancing:*",
+                "application-autoscaling:*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "DatabaseAndStorage",
+            "Effect": "Allow",
+            "Action": [
+                "rds:*",
+                "s3:*",
+                "ecr:*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "IAMAndLogs",
+            "Effect": "Allow",
+            "Action": [
+                "iam:*",
+                "logs:*",
+                "sts:AssumeRole"
+            ],
+            "Resource": "*"
+        }
+    ]
+}
