@@ -4,7 +4,7 @@ import pulumi_aws as aws
 
 
 class DashboardApp(pulumi.ComponentResource):
-    def __init__(self, name: str, env: str, base_infra, opts: pulumi.ResourceOptions = None):
+    def __init__(self, name: str, env: str, base_infra, ingestion_worker=None, opts: pulumi.ResourceOptions = None):
         super().__init__("minerva:dashboard:DashboardApp", name, {}, opts)
 
         config = pulumi.Config()
@@ -25,6 +25,27 @@ class DashboardApp(pulumi.ComponentResource):
             f"{name}-repo",
             force_delete=True,
             tags=self.tags,
+            opts=pulumi.ResourceOptions(parent=self)
+        )
+        self.repo_lifecycle_policy = aws.ecr.LifecyclePolicy(
+            f"{name}-repo-lifecycle-policy",
+            repository=self.repo.name,
+            policy=json.dumps({
+                "rules": [
+                    {
+                        "rulePriority": 1,
+                        "description": "Keep only the 10 most recent images",
+                        "selection": {
+                            "tagStatus": "any",
+                            "countType": "imageCountMoreThan",
+                            "countNumber": 10
+                        },
+                        "action": {
+                            "type": "expire"
+                        }
+                    }
+                ]
+            }),
             opts=pulumi.ResourceOptions(parent=self)
         )
 
@@ -69,6 +90,37 @@ class DashboardApp(pulumi.ComponentResource):
         self.s3_access_key = aws.iam.AccessKey(
             f"{name}-s3-access-key",
             user=self.s3_user.name,
+            opts=pulumi.ResourceOptions(parent=self)
+        )
+
+        # ── 4b. Dashboard Task Role (so ECS task can call ecs:RunTask) ────────
+        self.task_role = aws.iam.Role(
+            f"{name}-task-role",
+            assume_role_policy=json.dumps({
+                "Version": "2012-10-17",
+                "Statement": [{"Effect": "Allow", "Principal": {"Service": "ecs-tasks.amazonaws.com"}, "Action": "sts:AssumeRole"}]
+            }),
+            tags=self.tags,
+            opts=pulumi.ResourceOptions(parent=self)
+        )
+        aws.iam.RolePolicy(
+            f"{name}-ecs-run-task-policy",
+            role=self.task_role.name,
+            policy=json.dumps({
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["ecs:RunTask"],
+                        "Resource": "*"
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": "iam:PassRole",
+                        "Resource": "*"
+                    }
+                ]
+            }),
             opts=pulumi.ResourceOptions(parent=self)
         )
 
@@ -166,6 +218,10 @@ class DashboardApp(pulumi.ComponentResource):
 
         # ── 6. ECS Task Definition ───────────────────────────────────────────
         # All env vars injected at task level (no build-time secrets needed)
+        # Build ECS env vars — include ingestion details if worker was provided
+        ingestion_task_arn = ingestion_worker.task_def_arn if ingestion_worker else pulumi.Output.from_input("")
+        ingestion_sg_id = ingestion_worker.ingestion_sg_id if (ingestion_worker and hasattr(ingestion_worker, 'ingestion_sg_id')) else pulumi.Output.from_input("")
+
         container_env = pulumi.Output.all(
             db_url=base_infra.db_url,
             auth_url=auth_url,
@@ -175,20 +231,29 @@ class DashboardApp(pulumi.ComponentResource):
             auth_google_secret=auth_google_secret,
             s3_key_id=self.s3_access_key.id,
             s3_secret=self.s3_access_key.secret,
+            cluster_name=base_infra.cluster.name,
+            ingestion_task_arn=ingestion_task_arn,
+            private_subnet_ids=base_infra.vpc.private_subnet_ids,
+            ingestion_sg_id=ingestion_sg_id,
         ).apply(lambda args: json.dumps([
-            {"name": "NODE_ENV",             "value": "production"},
-            {"name": "DATABASE_URL",          "value": args["db_url"]},
-            {"name": "AUTH_URL",             "value": args["auth_url"]},
-            {"name": "AUTH_SECRET",           "value": args["auth_secret"]},
-            {"name": "AUTH_TRUST_HOST",      "value": "true"},
-            {"name": "AUTH_GOOGLE_ID",        "value": args["auth_google_id"]},
-            {"name": "AUTH_GOOGLE_SECRET",    "value": args["auth_google_secret"]},
-            {"name": "S3_ENDPOINT",           "value": f"https://s3.{region}.amazonaws.com"},
-            {"name": "S3_REGION",             "value": region},
-            {"name": "S3_BUCKET",             "value": args["bucket_name"]},
-            {"name": "S3_ACCESS_KEY_ID",      "value": args["s3_key_id"]},
-            {"name": "S3_SECRET_ACCESS_KEY",  "value": args["s3_secret"]},
-            {"name": "S3_FORCE_PATH_STYLE",   "value": "false"},
+            {"name": "NODE_ENV",                "value": "production"},
+            {"name": "DATABASE_URL",             "value": args["db_url"]},
+            {"name": "AUTH_URL",                "value": args["auth_url"]},
+            {"name": "AUTH_SECRET",              "value": args["auth_secret"]},
+            {"name": "AUTH_TRUST_HOST",         "value": "true"},
+            {"name": "AUTH_GOOGLE_ID",           "value": args["auth_google_id"]},
+            {"name": "AUTH_GOOGLE_SECRET",       "value": args["auth_google_secret"]},
+            {"name": "S3_ENDPOINT",              "value": f"https://s3.{region}.amazonaws.com"},
+            {"name": "S3_REGION",                "value": region},
+            {"name": "S3_BUCKET",                "value": args["bucket_name"]},
+            {"name": "S3_ACCESS_KEY_ID",         "value": args["s3_key_id"]},
+            {"name": "S3_SECRET_ACCESS_KEY",     "value": args["s3_secret"]},
+            {"name": "S3_FORCE_PATH_STYLE",      "value": "false"},
+            {"name": "AWS_REGION",               "value": region},
+            {"name": "ECS_CLUSTER_NAME",         "value": args["cluster_name"]},
+            {"name": "INGESTION_TASK_DEF_ARN",   "value": args["ingestion_task_arn"]},
+            {"name": "PRIVATE_SUBNET_IDS",       "value": ",".join(args["private_subnet_ids"])},
+            {"name": "ECS_SECURITY_GROUP_ID",    "value": args["ingestion_sg_id"]},
         ]))
 
         self.task_def = aws.ecs.TaskDefinition(
@@ -199,6 +264,7 @@ class DashboardApp(pulumi.ComponentResource):
             cpu="512",
             memory="1024",
             execution_role_arn=base_infra.ecs_execution_role.arn,
+            task_role_arn=self.task_role.arn,
             tags=self.tags,
             container_definitions=pulumi.Output.all(
                 repo_url=self.repo.repository_url,

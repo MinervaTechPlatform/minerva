@@ -4,11 +4,11 @@ config:
   minerva:github_token:
     secure: v1:v4cdxicEIBUbF8PO:0G5MJZJ0xIDk40g6N8M+JYotg5MD5COIJGUA2Xh76FTJz03AU5e94i8xJqRPtNl2Zxx1APo/NH4=
   minerva:auth_secret:
-    secure: v1:9ktEJWZAfL9uUgTo:n4CnLUFTVyQseNLU52zIHaIqnMFuls4fUQPoMhNhKJfFmovrwZQWmbcFazXZGgGer7ar8jZYxD8ZFBHcOjXfoyOqkghFieWv8dvVoJMhlHP95Bgy1u5M5wH3QINN3HziT/I9B0U=
+    secure: v1:SDjBm6or6TUPXFLi:qDyl2F4uSDPi4tWmn/yP5xjaZmevYoiVxVv6VBO2KDLk67BvwlCAbBp/1MIGz33n2INoyFuQipUPJUPg5vUl5bEsXMewf0DpjBq/3OanyPriYUc4whgPonba46cf7gW5zBIPbJU=
   minerva:auth_google_id:
-    secure: v1:3FONQgYO1C2MgQ+M:Lfrsg/nIztYHRJE1KfMhyn90KITCQxC7MOeypQG1SJ3/K7SUSxu5QeZ1lvD73LeQeyy+j82naYZxVNR2pAmAs+Khl+8N9cEBIE+7xPyMSvdtPYcbRGPodQ==
+    secure: v1:7JizpGPJKyme09uB:a/FE3leAkH8sxCNFbHf+ezskJIyk1C+QwSUKVUCoC6yqVJ9xa5rSqTIpgQjrZVm72+XjdWuqpYsf0jfzWgEMZvIQWfXhrwDa1l1uyV8xC79yKTDQukdVdA==
   minerva:auth_google_secret:
-    secure: v1:KQEHvJLpGRCuvNI3:++jcJ55mnhXJh2I0ICGRYglft/oMg2kUZylDJsGqzKRPjGr+ZTcNfr0hWtMbxVk26npK
-  minerva:deploy_core: "false"
+    secure: v1:rdowJCK8VyxP3Oru:nJtWwN0fPyOC/bRouuynT7J7XGvsRkeuCWqg0x+YwqeizIX7+vWEz8VWlkrz3NhdyOWk
+  minerva:deploy_core: "true"
   minerva:deploy_dashboard: "true"
-  minerva:deploy_ingestion: "false"
+  minerva:deploy_ingestion: "true"

@@ -105,6 +105,7 @@ const documentsTemplate = pgTable("documents", {
 
 const ingestionJobsTemplate = pgTable("ingestion_jobs", {
   id: uuid("id").defaultRandom().primaryKey(),
+  businessId: uuid("business_id").notNull(),
   documentIds: uuid("document_ids").array().notNull().default([]),
   status: text("status").notNull().default("initiated"), // initiated | in_progress | success | failed
   errorMessage: text("error_message"),
@@ -237,6 +238,7 @@ export function getTenantSchema(orgId: string) {
 
     ingestionJobs: schema.table("ingestion_jobs", {
       id: uuid("id").defaultRandom().primaryKey(),
+      businessId: uuid("business_id").notNull(),
       documentIds: uuid("document_ids").array().notNull().default([]),
       status: text("status").notNull().default("initiated"),
       errorMessage: text("error_message"),

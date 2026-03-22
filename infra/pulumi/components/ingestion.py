@@ -78,7 +78,25 @@ class IngestionWorker(pulumi.ComponentResource):
         self.repo_url = self.repo.repository_url
         self.task_def_arn = self.task_def.arn
 
+        # Security group for ingestion ECS tasks (allow all egress, no inbound needed)
+        self.ingestion_sg = aws.ec2.SecurityGroup(
+            f"{name}-sg",
+            vpc_id=base_infra.vpc.vpc_id,
+            description="Ingestion ECS task security group",
+            ingress=[],
+            egress=[{
+                "protocol": "-1",
+                "from_port": 0,
+                "to_port": 0,
+                "cidr_blocks": ["0.0.0.0/0"],
+            }],
+            tags=self.tags,
+            opts=pulumi.ResourceOptions(parent=self)
+        )
+        self.ingestion_sg_id = self.ingestion_sg.id
+
         self.register_outputs({
             "repo_url": self.repo_url,
-            "task_def_arn": self.task_def_arn
+            "task_def_arn": self.task_def_arn,
+            "ingestion_sg_id": self.ingestion_sg_id,
         })

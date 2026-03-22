@@ -4,8 +4,13 @@ import { NextResponse } from "next/server";
 export default auth((req) => {
   const { pathname } = req.nextUrl;
 
-  // Allow auth-related routes
-  if (pathname.startsWith("/auth") || pathname.startsWith("/api/auth")) {
+  // Allow auth-related routes, health checks, and the public landing page
+  if (
+    pathname === "/" ||
+    pathname.startsWith("/auth") ||
+    pathname.startsWith("/api/auth") ||
+    pathname === "/api/health"
+  ) {
     return NextResponse.next();
   }
 

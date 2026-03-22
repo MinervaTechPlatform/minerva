@@ -33,7 +33,8 @@ if deploy_core:
     pulumi.export("core_repo_url", core.repo.repository_url)
 
 if deploy_dashboard:
-    dashboard = DashboardApp(f"{prefix}-dashboard", env, base)
+    ingestion_ref = ingestion if deploy_ingestion else None
+    dashboard = DashboardApp(f"{prefix}-dashboard", env, base, ingestion_worker=ingestion_ref)
     pulumi.export("dashboard_url", dashboard.service_url)
     pulumi.export("dashboard_repo_url", dashboard.repo.repository_url)
 

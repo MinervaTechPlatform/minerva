@@ -42,6 +42,11 @@ COPY --from=builder --chown=nextjs:nodejs /app/drizzle.config.ts ./drizzle.confi
 COPY --from=builder --chown=nextjs:nodejs /app/src/db          ./src/db
 COPY --chown=nextjs:nodejs infra/docker/dashboard-entrypoint.sh ./dashboard-entrypoint.sh
 
+# Give nextjs ownership of the working directory itself so it can write
+# runtime files (e.g. global-bundle.pem downloaded by the entrypoint).
+# COPY --chown sets ownership only on the copied files, not on the WORKDIR entry.
+RUN chown nextjs:nodejs /app
+
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000
