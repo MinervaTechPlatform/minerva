@@ -21,6 +21,9 @@
                 "logs:Describe*",
                 "logs:Get*",
                 "logs:Filter*",
+                "cloudwatch:Describe*",
+                "cloudwatch:Get*",
+                "cloudwatch:List*",
                 "application-autoscaling:Describe*"
             ],
             "Resource": "*"
