@@ -1,0 +1,53 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "MinervaServiceFullAccess",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:*",
+                "ecs:*",
+                "rds:*",
+                "s3:*",
+                "ecr:*",
+                "elasticloadbalancing:*",
+                "logs:*",
+                "application-autoscaling:*",
+                "sts:AssumeRole"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "IAMRestrictedAdmin",
+            "Effect": "Allow",
+            "Action": [
+                "iam:CreateRole",
+                "iam:DeleteRole",
+                "iam:PutRolePolicy",
+                "iam:DeleteRolePolicy",
+                "iam:AttachRolePolicy",
+                "iam:DetachRolePolicy",
+                "iam:PassRole",
+                "iam:TagRole",
+                "iam:GetRole",
+                "iam:ListRoles",
+                "iam:UpdateAssumeRolePolicy"
+            ],
+            "Resource": [
+                "arn:aws:iam::*:role/*minerva*",
+                "arn:aws:iam::*:policy/*minerva*"
+            ]
+        },
+        {
+            "Sid": "BillingFullAccess",
+            "Effect": "Allow",
+            "Action": [
+                "billing:*",
+                "payments:*",
+                "purchase-orders:*",
+                "tax:*"
+            ],
+            "Resource": "*"
+        }
+    ]
+}

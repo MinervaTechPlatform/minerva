@@ -1,0 +1,32 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "MinervaReadOnlyAccess",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:Describe*",
+                "ec2:Get*",
+                "ecs:Describe*",
+                "ecs:List*",
+                "rds:Describe*",
+                "rds:List*",
+                "s3:Get*",
+                "s3:List*",
+                "ecr:Describe*",
+                "ecr:Get*",
+                "iam:Get*",
+                "iam:List*",
+                "elasticloadbalancing:Describe*",
+                "logs:Describe*",
+                "logs:Get*",
+                "logs:Filter*",
+                "cloudwatch:Describe*",
+                "cloudwatch:Get*",
+                "cloudwatch:List*",
+                "application-autoscaling:Describe*"
+            ],
+            "Resource": "*"
+        }
+    ]
+}

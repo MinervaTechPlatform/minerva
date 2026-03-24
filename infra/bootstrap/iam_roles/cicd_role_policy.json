@@ -1,0 +1,82 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "PulumiStateAccess",
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetBucket*",
+                "s3:ListBucket*",
+                "s3:GetObject*",
+                "s3:PutObject*",
+                "s3:DeleteObject*"
+            ],
+            "Resource": [
+                "arn:aws:s3:::minerva-pulumi-state*",
+                "arn:aws:s3:::minerva-pulumi-state*/*"
+            ]
+        },
+        {
+            "Sid": "ECRGlobalAccess",
+            "Effect": "Allow",
+            "Action": [
+                "ecr:GetAuthorizationToken"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "MinervaDeploymentAccess",
+            "Effect": "Allow",
+            "Action": [
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:BatchGetImage",
+                "ecr:PutImage",
+                "ecr:InitiateLayerUpload",
+                "ecr:UploadLayerPart",
+                "ecr:CompleteLayerUpload",
+                "ecs:UpdateService",
+                "ecs:RegisterTaskDefinition",
+                "ecs:RunTask",
+                "ecs:Describe*",
+                "ecs:List*",
+                "s3:PutObject",
+                "s3:GetObject",
+                "s3:ListBucket",
+                "s3:DeleteObject"
+            ],
+            "Resource": [
+                "arn:aws:ecr:*:*:repository/*minerva*",
+                "arn:aws:ecs:*:*:*/*minerva*",
+                "arn:aws:s3:::*minerva*",
+                "arn:aws:s3:::*minerva*/*"
+            ]
+        },
+        {
+            "Sid": "MinervaInfraManagement",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:Describe*",
+                "ec2:CreateTags",
+                "ec2:DeleteTags",
+                "rds:Describe*",
+                "elasticloadbalancing:Describe*",
+                "logs:CreateLogGroup",
+                "logs:DescribeLogGroups",
+                "logs:PutRetentionPolicy"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "IAMPassRoleRestricted",
+            "Effect": "Allow",
+            "Action": [
+                "iam:GetRole",
+                "iam:PassRole"
+            ],
+            "Resource": [
+                "arn:aws:iam::*:role/*minerva*"
+            ]
+        }
+    ]
+}

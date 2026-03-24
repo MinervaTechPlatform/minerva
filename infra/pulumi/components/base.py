@@ -52,16 +52,29 @@ class BaseInfra(pulumi.ComponentResource):
             opts=pulumi.ResourceOptions(parent=self)
         )
 
+        # 5. Security Group for Public-facing components (e.g. Dashboard)
+        # This allows us to avoid hardcoding CIDRs and use SG nesting
+        self.public_assets_sg = aws.ec2.SecurityGroup(
+            f"{name}-public-assets-sg",
+            vpc_id=self.vpc.vpc_id,
+            description="Security Group for public-facing assets like Dashboard",
+            tags=self.tags,
+            opts=pulumi.ResourceOptions(parent=self)
+        )
+
         self.db_sg = aws.ec2.SecurityGroup(
             f"{name}-db-sg",
             vpc_id=self.vpc.vpc_id,
-            description="Allow internal Postgres access",
+            description="Allow Postgres access from Public Subnets only",
             ingress=[
                 {
                     "protocol": "tcp",
                     "from_port": 5432,
                     "to_port": 5432,
-                    "cidr_blocks": ["10.0.0.0/8"], # Internal only
+                    # We allow the specific Security Group of your dashboard component.
+                    # When you deploy your dashboard on EC2 or ECS, simply attach 
+                    # 'public_assets_sg' to it.
+                    "security_groups": [self.public_assets_sg.id],
                 }
             ],
             tags=self.tags,
@@ -80,6 +93,7 @@ class BaseInfra(pulumi.ComponentResource):
             db_subnet_group_name=self.db_subnet_group.name,
             vpc_security_group_ids=[self.db_sg.id],
             multi_az=False,
+            publicly_accessible=False,
             skip_final_snapshot=True,
             tags=self.tags,
             opts=pulumi.ResourceOptions(parent=self, depends_on=[self.db_subnet_group])
@@ -114,5 +128,6 @@ class BaseInfra(pulumi.ComponentResource):
             "cluster_arn": self.cluster.arn,
             "bucket_name": self.bucket.id,
             "db_address": self.db.address,
-            "db_url": self.db_url
+            "db_url": self.db_url,
+            "public_assets_sg_id": self.public_assets_sg.id
         })
