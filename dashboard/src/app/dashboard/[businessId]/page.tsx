@@ -1,8 +1,8 @@
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { businesses } from "@/db/schema";
-import { getTenantSchema } from "@/db/tenant-schema";
-import { eq } from "drizzle-orm";
+import { getBusinessSchema } from "@/db/business-schema";
+import { eq, desc } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import {
   Card,
@@ -40,8 +40,15 @@ export default async function OverviewPage({
 
   if (!business) redirect("/");
 
-  const t = getTenantSchema(business.orgId);
+  const t = getBusinessSchema(businessId);
   const docs = await db.select().from(t.documents);
+
+  // Derive ingestion status from the latest ingestion job
+  const [latestJob] = await db
+    .select()
+    .from(t.ingestionJobs)
+    .orderBy(desc(t.ingestionJobs.createdOn))
+    .limit(1);
 
   const totalDocs = docs.length;
   const activeDocs = docs.filter((d) => d.isActive).length;
@@ -185,16 +192,16 @@ export default async function OverviewPage({
                   <Badge
                     variant="outline"
                     className={`text-xs shrink-0 ${
-                      doc.ingestionStatus === "success"
+                      latestJob?.status === "success"
                         ? "border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10"
-                        : doc.ingestionStatus === "in_progress"
+                        : latestJob?.status === "in_progress"
                         ? "border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/10"
-                        : doc.ingestionStatus === "failed"
+                        : latestJob?.status === "failed"
                         ? "border-red-500/30 text-red-600 dark:text-red-400 bg-red-500/10"
                         : "text-muted-foreground"
                     }`}
                   >
-                    {doc.ingestionStatus}
+                    {latestJob?.status ?? "pending"}
                   </Badge>
                 </div>
               ))

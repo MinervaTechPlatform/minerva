@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * run-tenant-migrations.mjs
+ * run-business-migrations.mjs
  *
- * Plain JavaScript (ESM) runner for tenant schema migrations.
+ * Plain JavaScript (ESM) runner for per-business schema migrations.
  * Called from dashboard-entrypoint.sh. Designed to work inside the
  * Next.js standalone Docker image alongside the migrate-tools bundle.
  *
- * Reads migration files from ./tenant-migrations/ (relative to this file)
- * and applies pending ones to every org_* schema in the database.
- * Skips 0001_*.sql — those are handled by createOrgSchema.
+ * Reads migration files from ./business-migrations/ (relative to this file)
+ * and applies pending ones to every bus_* schema in the database.
+ * Skips 0001_*.sql — those are handled by createBusinessSchema.
  */
 
 import pg from "pg";
@@ -19,7 +19,7 @@ import { fileURLToPath } from "url";
 const { Pool } = pg;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MIGRATIONS_DIR = path.join(__dirname, "tenant-migrations");
+const MIGRATIONS_DIR = path.join(__dirname, "business-migrations");
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -30,7 +30,7 @@ const pool = new Pool({
 
 function loadMigrationFiles() {
   if (!fs.existsSync(MIGRATIONS_DIR)) {
-    console.log("[migrate-tenants] No tenant-migrations directory found — skipping.");
+    console.log("[migrate-businesses] No business-migrations directory found — skipping.");
     return [];
   }
 
@@ -62,8 +62,8 @@ async function getAppliedVersions(client, schemaName) {
   return new Set(result.rows.map((r) => r.version));
 }
 
-async function migrateOrgSchema(orgId, migrations) {
-  const schemaName = `org_${orgId}`;
+async function migrateBusinessSchema(businessId, migrations) {
+  const schemaName = `bus_${businessId}`;
   const client = await pool.connect();
   try {
     await ensureMigrationsTable(client, schemaName);
@@ -71,12 +71,12 @@ async function migrateOrgSchema(orgId, migrations) {
     const pending = migrations.filter((m) => !applied.has(m.version));
 
     if (pending.length === 0) {
-      console.log(`[migrate-tenants] ${schemaName}: up to date`);
+      console.log(`[migrate-businesses] ${schemaName}: up to date`);
       return;
     }
 
     for (const migration of pending) {
-      console.log(`[migrate-tenants] ${schemaName}: applying ${migration.filename}...`);
+      console.log(`[migrate-businesses] ${schemaName}: applying ${migration.filename}...`);
       await client.query("BEGIN");
       try {
         await client.query(`SET LOCAL search_path TO "${schemaName}"`);
@@ -86,7 +86,7 @@ async function migrateOrgSchema(orgId, migrations) {
           [migration.version, migration.filename]
         );
         await client.query("COMMIT");
-        console.log(`[migrate-tenants] ${schemaName}: ✓ ${migration.filename}`);
+        console.log(`[migrate-businesses] ${schemaName}: ✓ ${migration.filename}`);
       } catch (err) {
         await client.query("ROLLBACK");
         throw new Error(`Migration ${migration.filename} failed on ${schemaName}: ${err}`);
@@ -101,38 +101,38 @@ async function main() {
   const migrations = loadMigrationFiles();
 
   if (migrations.length === 0) {
-    console.log("[migrate-tenants] No tenant migrations to apply.");
+    console.log("[migrate-businesses] No business migrations to apply.");
     await pool.end();
     return;
   }
 
-  // Discover all org_* schemas
+  // Discover all bus_* schemas
   const client = await pool.connect();
-  let orgIds;
+  let businessIds;
   try {
     const result = await client.query(`
       SELECT nspname FROM pg_catalog.pg_namespace
-      WHERE nspname LIKE 'org_%'
+      WHERE nspname LIKE 'bus_%'
       ORDER BY nspname
     `);
-    orgIds = result.rows.map((r) => r.nspname.replace("org_", ""));
+    businessIds = result.rows.map((r) => r.nspname.replace("bus_", ""));
   } finally {
     client.release();
   }
 
   console.log(
-    `[migrate-tenants] Migrating ${orgIds.length} org schema(s), ${migrations.length} migration file(s)...`
+    `[migrate-businesses] Migrating ${businessIds.length} business schema(s), ${migrations.length} migration file(s)...`
   );
 
-  for (const orgId of orgIds) {
-    await migrateOrgSchema(orgId, migrations);
+  for (const businessId of businessIds) {
+    await migrateBusinessSchema(businessId, migrations);
   }
 
-  console.log("[migrate-tenants] Done.");
+  console.log("[migrate-businesses] Done.");
   await pool.end();
 }
 
 main().catch((err) => {
-  console.error("[migrate-tenants] Fatal error:", err);
+  console.error("[migrate-businesses] Fatal error:", err);
   process.exit(1);
 });

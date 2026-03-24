@@ -1,27 +1,25 @@
 /**
- * setup-tenant.ts
+ * setup-business.ts
  *
- * Creates the PostgreSQL schema and all tables for a new org.
+ * Creates the PostgreSQL schema and all tables for a new business.
  *
- * This should be called as an ASYNC BACKGROUND JOB after a new org is created.
- * The API route should return immediately with a "provisioning" status and
- * poll/subscribe (via websocket or polling endpoint) for completion.
+ * One schema is created per business, named `bus_<businessId>`.
+ * Called automatically (fire-and-forget) when a new business is created via
+ * POST /api/businesses.
  *
  * Usage:
- *   import { createOrgSchema } from "@/db/setup-tenant";
- *   await createOrgSchema(org.id);  // e.g. from a background worker
+ *   import { createBusinessSchema } from "@/db/setup-business";
+ *   await createBusinessSchema(business.id);
  */
 
 import { pool } from "@/db";
 
 /**
- * Creates a new PostgreSQL schema `org_<orgId>` with all tenant tables.
+ * Creates a new PostgreSQL schema `bus_<businessId>` with all business tables.
  * Safe to call multiple times — uses IF NOT EXISTS guards throughout.
  */
-export async function createOrgSchema(orgId: string): Promise<void> {
-  const schemaName = `org_${orgId}`;
-
-  // Use a dedicated client from the pool to keep search_path scoped
+export async function createBusinessSchema(businessId: string): Promise<void> {
+  const schemaName = `bus_${businessId}`;
   const client = await pool.connect();
 
   try {
@@ -33,7 +31,7 @@ export async function createOrgSchema(orgId: string): Promise<void> {
     // 2. Set search_path for this transaction
     await client.query(`SET LOCAL search_path TO "${schemaName}"`);
 
-    // 3. Create all tenant tables
+    // 3. Create all business tables
     await client.query(`
       -- 1. Configurations
       CREATE TABLE IF NOT EXISTS configs (
@@ -47,22 +45,7 @@ export async function createOrgSchema(orgId: string): Promise<void> {
         last_updated_on TIMESTAMPTZ DEFAULT now()
       );
 
-      -- 2. API Keys
-      CREATE TABLE IF NOT EXISTS api_keys (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        api_key TEXT UNIQUE NOT NULL,
-        api_secret_hash TEXT NOT NULL,
-        name TEXT,
-        key_prefix TEXT,
-        last_used TIMESTAMPTZ,
-        is_active BOOLEAN DEFAULT true,
-        created_by UUID,
-        created_on TIMESTAMPTZ DEFAULT now(),
-        last_updated_by UUID,
-        last_updated_on TIMESTAMPTZ DEFAULT now()
-      );
-
-      -- 3. Documents
+      -- 2. Documents (ingestion status derived from latest ingestion_jobs row)
       CREATE TABLE IF NOT EXISTS documents (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         filename TEXT NOT NULL,
@@ -74,7 +57,6 @@ export async function createOrgSchema(orgId: string): Promise<void> {
         version INTEGER DEFAULT 1,
         chunk_count INTEGER,
         embedding_model TEXT,
-        ingestion_status TEXT DEFAULT 'initiated',
         is_active BOOLEAN DEFAULT true,
         created_by UUID,
         created_on TIMESTAMPTZ DEFAULT now(),
@@ -82,11 +64,12 @@ export async function createOrgSchema(orgId: string): Promise<void> {
         last_updated_on TIMESTAMPTZ DEFAULT now()
       );
 
-      -- 4. Ingestion Jobs
+      -- 3. Ingestion Jobs (schema itself scopes jobs to this business)
       CREATE TABLE IF NOT EXISTS ingestion_jobs (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         document_ids UUID[] NOT NULL DEFAULT '{}',
         status TEXT NOT NULL DEFAULT 'initiated',
+        ecs_task_arn TEXT,
         error_message TEXT,
         chunks_processed INTEGER DEFAULT 0,
         started_at TIMESTAMPTZ,
@@ -97,7 +80,7 @@ export async function createOrgSchema(orgId: string): Promise<void> {
         last_updated_on TIMESTAMPTZ DEFAULT now()
       );
 
-      -- 5. Sessions (chat conversations, NOT auth sessions)
+      -- 4. Sessions (chat conversations, NOT auth sessions)
       CREATE TABLE IF NOT EXISTS sessions (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         channel TEXT NOT NULL,
@@ -115,7 +98,7 @@ export async function createOrgSchema(orgId: string): Promise<void> {
         last_updated_on TIMESTAMPTZ DEFAULT now()
       );
 
-      -- 6. Messages
+      -- 5. Messages
       CREATE TABLE IF NOT EXISTS messages (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -130,7 +113,7 @@ export async function createOrgSchema(orgId: string): Promise<void> {
         last_updated_on TIMESTAMPTZ DEFAULT now()
       );
 
-      -- 7. Usage Records
+      -- 6. Usage Records
       CREATE TABLE IF NOT EXISTS usage_records (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -145,7 +128,7 @@ export async function createOrgSchema(orgId: string): Promise<void> {
         last_updated_on TIMESTAMPTZ DEFAULT now()
       );
 
-      -- 8. Unknown Queries
+      -- 7. Unknown Queries
       CREATE TABLE IF NOT EXISTS unknown_queries (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -159,7 +142,7 @@ export async function createOrgSchema(orgId: string): Promise<void> {
         last_updated_on TIMESTAMPTZ DEFAULT now()
       );
 
-      -- 9. Feedback
+      -- 8. Feedback
       CREATE TABLE IF NOT EXISTS feedback (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -177,14 +160,14 @@ export async function createOrgSchema(orgId: string): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_sessions_created_on ON sessions(created_on);
       CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
       CREATE INDEX IF NOT EXISTS idx_messages_created_on ON messages(created_on);
-      CREATE INDEX IF NOT EXISTS idx_api_keys_api_key ON api_keys(api_key);
+      CREATE INDEX IF NOT EXISTS idx_ingestion_jobs_created_on ON ingestion_jobs(created_on);
     `);
 
     await client.query("COMMIT");
-    console.log(`[setup-tenant] Schema "${schemaName}" created successfully.`);
+    console.log(`[setup-business] Schema "${schemaName}" created successfully.`);
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error(`[setup-tenant] Failed to create schema "${schemaName}":`, err);
+    console.error(`[setup-business] Failed to create schema "${schemaName}":`, err);
     throw err;
   } finally {
     client.release();
@@ -192,15 +175,15 @@ export async function createOrgSchema(orgId: string): Promise<void> {
 }
 
 /**
- * Drops a tenant schema and all its tables.
+ * Drops a business schema and all its tables.
  * Use with caution — this is irreversible.
  */
-export async function dropOrgSchema(orgId: string): Promise<void> {
-  const schemaName = `org_${orgId}`;
+export async function dropBusinessSchema(businessId: string): Promise<void> {
+  const schemaName = `bus_${businessId}`;
   const client = await pool.connect();
   try {
     await client.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`);
-    console.log(`[setup-tenant] Schema "${schemaName}" dropped.`);
+    console.log(`[setup-business] Schema "${schemaName}" dropped.`);
   } finally {
     client.release();
   }

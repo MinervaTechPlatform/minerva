@@ -9,7 +9,7 @@ const sslCert = fs.existsSync(sslCertPath)
   ? fs.readFileSync(sslCertPath, "utf8")
   : undefined;
 
-// Export pool so setup-tenant.ts can acquire raw clients for DDL transactions
+// Export pool so setup-business.ts can acquire raw clients for DDL transactions
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL!,
   ...(sslCert

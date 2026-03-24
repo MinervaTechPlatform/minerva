@@ -1,7 +1,7 @@
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { businesses } from "@/db/schema";
-import { getTenantSchema } from "@/db/tenant-schema";
+import { getBusinessSchema } from "@/db/business-schema";
 import { eq, and, sum } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
@@ -34,7 +34,7 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const { documents } = getTenantSchema(business.orgId);
+  const { documents } = getBusinessSchema(businessId);
   const docs = await db.select().from(documents);
 
   return NextResponse.json(docs);
@@ -80,7 +80,7 @@ export async function POST(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const { documents } = getTenantSchema(business.orgId);
+  const { documents } = getBusinessSchema(businessId);
   const [storageResult] = await db
     .select({ totalSize: sum(documents.size) })
     .from(documents);
@@ -156,7 +156,7 @@ export async function PUT(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const { documents } = getTenantSchema(business.orgId);
+  const { documents } = getBusinessSchema(businessId);
   const [doc] = await db
     .insert(documents)
     .values({
@@ -166,7 +166,6 @@ export async function PUT(
       fileUrl,
       size: fileSize,
       mimeType,
-      ingestionStatus: "initiated",
     })
     .returning();
 
@@ -203,7 +202,7 @@ export async function DELETE(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const { documents } = getTenantSchema(business.orgId);
+  const { documents } = getBusinessSchema(businessId);
   const [doc] = await db
     .select()
     .from(documents)

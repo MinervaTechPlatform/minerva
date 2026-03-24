@@ -105,7 +105,7 @@ export const businesses = pgTable("businesses", {
     .references(() => organizations.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
-  schemaName: text("schema_name").notNull(), // e.g. org_<orgId> — shared across all businesses in an org
+  schemaName: text("schema_name").notNull(), // e.g. bus_<businessId> — one schema per business
   industry: text("industry"),                         // e.g. warehouse, fintech, real_estate
   goal: varchar("goal", { length: 50 }),              // e.g. leads, customer_support
   allowedDomains: jsonb("allowed_domains").default([]),
@@ -135,6 +135,27 @@ export const userAccess = pgTable(
   (t) => ({ pk: primaryKey({ columns: [t.userId, t.businessId] }) })
 );
 
+// ─── API Keys (public schema, scoped per business) ───────────────
+
+export const apiKeys = pgTable("api_keys", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  businessId: uuid("business_id")
+    .notNull()
+    .references(() => businesses.id, { onDelete: "cascade" }),
+  apiKey: text("api_key").unique().notNull(),
+  apiSecretHash: text("api_secret_hash").notNull(),
+  name: text("name"),              // human-readable label
+  keyPrefix: text("key_prefix"),   // e.g. "mnrv_XXXX..."
+  lastUsed: timestamp("last_used", { withTimezone: true, mode: "date" }),
+  isActive: boolean("is_active").default(true).notNull(),
+
+  // Audit
+  createdBy: uuid("created_by"),
+  createdOn: timestamp("created_on", { withTimezone: true, mode: "date" }).defaultNow(),
+  lastUpdatedBy: uuid("last_updated_by"),
+  lastUpdatedOn: timestamp("last_updated_on", { withTimezone: true, mode: "date" }).defaultNow(),
+});
+
 // ─── System Settings ─────────────────────────────────────────────
 
 export const systemSettings = pgTable("system_settings", {
@@ -156,4 +177,5 @@ export type Organization = typeof organizations.$inferSelect;
 export type OrgMember = typeof orgMembers.$inferSelect;
 export type Business = typeof businesses.$inferSelect;
 export type UserAccess = typeof userAccess.$inferSelect;
+export type ApiKey = typeof apiKeys.$inferSelect;
 export type SystemSetting = typeof systemSettings.$inferSelect;

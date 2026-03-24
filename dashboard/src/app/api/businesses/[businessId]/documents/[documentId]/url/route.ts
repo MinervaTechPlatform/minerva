@@ -1,7 +1,7 @@
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { businesses } from "@/db/schema";
-import { getTenantSchema } from "@/db/tenant-schema";
+import { getBusinessSchema } from "@/db/business-schema";
 import { eq, and } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
@@ -33,7 +33,7 @@ export async function GET(
     }
 
     // Get document metadata
-    const { documents } = getTenantSchema(business.orgId);
+    const { documents } = getBusinessSchema(businessId);
     const [doc] = await db
       .select()
       .from(documents)

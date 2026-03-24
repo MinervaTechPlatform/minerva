@@ -1,7 +1,35 @@
 import { signIn } from "@/auth";
 import { Bot } from "lucide-react";
 
-export default function SignInPage() {
+function getRedirectTo(
+  callbackUrl: string | string[] | undefined
+) {
+  const value = Array.isArray(callbackUrl) ? callbackUrl[0] : callbackUrl;
+
+  if (!value) {
+    return "/dashboard";
+  }
+
+  if (value.startsWith("/")) {
+    return value;
+  }
+
+  try {
+    const url = new URL(value);
+    return `${url.pathname}${url.search}${url.hash}` || "/dashboard";
+  } catch {
+    return "/dashboard";
+  }
+}
+
+export default async function SignInPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ callbackUrl?: string | string[] }>;
+}) {
+  const params = await searchParams;
+  const redirectTo = getRedirectTo(params?.callbackUrl);
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-full max-w-md px-4">
@@ -21,7 +49,7 @@ export default function SignInPage() {
           <form
             action={async () => {
               "use server";
-              await signIn("google", { redirectTo: "/" });
+              await signIn("google", { redirectTo });
             }}
           >
             <button

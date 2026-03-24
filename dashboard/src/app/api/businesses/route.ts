@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { businesses, organizations, orgMembers } from "@/db/schema";
 import { eq, inArray, and } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { createBusinessSchema } from "@/db/setup-business";
 
 export async function GET() {
   const session = await auth();
@@ -86,8 +87,6 @@ export async function POST(req: Request) {
 
   // Check uniqueness by slug
   const businessSlug = slug || name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  // schemaName is the org's shared schema — not unique per business
-  const schemaName = `org_${orgId}`;
 
   const existing = await db
     .select()
@@ -107,12 +106,26 @@ export async function POST(req: Request) {
       name,
       orgId,
       slug: businessSlug,
-      schemaName,
+      schemaName: `bus_placeholder`, // will be updated after insert
       industry,
       goal,
       createdBy: session.user.id,
     })
     .returning();
 
-  return NextResponse.json(business, { status: 201 });
+  // Now set the real schemaName based on the generated business ID
+  const realSchemaName = `bus_${business.id}`;
+  await db
+    .update(businesses)
+    .set({ schemaName: realSchemaName })
+    .where(eq(businesses.id, business.id));
+
+  const finalBusiness = { ...business, schemaName: realSchemaName };
+
+  // Fire and forget — schema creation runs in background
+  createBusinessSchema(business.id).catch((err) => {
+    console.error(`[businesses] Failed to create schema for business ${business.id}:`, err);
+  });
+
+  return NextResponse.json(finalBusiness, { status: 201 });
 }

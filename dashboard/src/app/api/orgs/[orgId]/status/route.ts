@@ -1,15 +1,14 @@
 /**
  * GET /api/orgs/[orgId]/status
  *
- * Polls whether the org's PostgreSQL schema has been created yet.
- * Returns { status: "ready" } once the schema exists, or { status: "provisioning" } if not.
+ * Previously polled for org-level schema creation. With the new per-business
+ * schema architecture (bus_<businessId>), schemas are created when businesses
+ * are created, not at the org level.
  *
- * The frontend should poll this after calling POST /api/orgs/[orgId]/setup,
- * showing a loading/provisioning screen until "ready".
+ * This endpoint now always returns { status: "ready" } for authenticated org members.
  */
 
 import { auth } from "@/auth";
-import { pool } from "@/db";
 import { db } from "@/db";
 import { orgMembers } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -38,23 +37,6 @@ export async function GET(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Check if the schema exists in pg_catalog
-  const client = await pool.connect();
-  try {
-    const result = await client.query<{ exists: boolean }>(
-      `SELECT EXISTS (
-        SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = $1
-      ) AS exists`,
-      [`org_${orgId}`]
-    );
-
-    const schemaExists = result.rows[0]?.exists ?? false;
-
-    return NextResponse.json({
-      orgId,
-      status: schemaExists ? "ready" : "provisioning",
-    });
-  } finally {
-    client.release();
-  }
+  // Schemas are now created per-business — org setup is always "ready"
+  return NextResponse.json({ orgId, status: "ready" });
 }

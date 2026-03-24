@@ -1,27 +1,17 @@
 /**
  * POST /api/orgs/[orgId]/setup
  *
- * Triggers async creation of the PostgreSQL schema for this org.
+ * Previously triggered schema creation for an org. With the new per-business
+ * schema architecture (bus_<businessId>), schema creation now happens
+ * automatically when a business is created via POST /api/businesses.
  *
- * This endpoint is called immediately after POST /api/orgs creates a new org.
- * It starts schema creation in the background and returns immediately with
- * { status: "provisioning" }. The frontend should poll GET /api/orgs/[orgId]/status
- * until it receives { status: "ready" }.
- *
- * WHY NOT AWAIT DIRECTLY?
- * createOrgSchema runs DDL which can take 1-2s. We don't want the org creation
- * request to hang waiting for it. Returning immediately gives a better UX.
- *
- * HOW BACKGROUND WORKS IN NEXT.JS:
- * We use `waitUntil` from the Vercel edge runtime to keep the process alive
- * after the response is returned, OR we simply kick off the promise without
- * awaiting it (fire-and-forget, works on Node.js runtimes).
+ * This endpoint is kept for backward compatibility but is now a no-op that
+ * simply verifies the org exists and the user belongs to it.
  */
 
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { organizations, orgMembers } from "@/db/schema";
-import { createOrgSchema } from "@/db/setup-tenant";
 import { eq, and } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
@@ -58,11 +48,6 @@ export async function POST(
     return NextResponse.json({ error: "Org not found" }, { status: 404 });
   }
 
-  // Fire and forget — schema creation runs in background
-  // The response returns immediately; frontend polls /api/orgs/[orgId]/status
-  createOrgSchema(orgId).catch((err) => {
-    console.error(`[setup] Failed to create schema for org ${orgId}:`, err);
-  });
-
-  return NextResponse.json({ status: "provisioning", orgId }, { status: 202 });
+  // Schema creation now happens per-business when POST /api/businesses is called.
+  return NextResponse.json({ status: "ready", orgId }, { status: 200 });
 }

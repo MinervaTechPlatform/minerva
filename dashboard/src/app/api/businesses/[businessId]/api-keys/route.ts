@@ -1,7 +1,6 @@
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { businesses } from "@/db/schema";
-import { getTenantSchema } from "@/db/tenant-schema";
+import { businesses, apiKeys } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { createHash, randomBytes } from "crypto";
@@ -37,7 +36,6 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const { apiKeys } = getTenantSchema(business.orgId);
   const keys = await db
     .select({
       id: apiKeys.id,
@@ -46,7 +44,8 @@ export async function GET(
       createdOn: apiKeys.createdOn,
       lastUsed: apiKeys.lastUsed,
     })
-    .from(apiKeys);
+    .from(apiKeys)
+    .where(eq(apiKeys.businessId, businessId));
 
   return NextResponse.json(keys);
 }
@@ -80,10 +79,10 @@ export async function POST(
   const keyPrefix = rawKey.substring(0, 13) + "...";
   const apiSecretHash = hashKey(rawKey);
 
-  const { apiKeys } = getTenantSchema(business.orgId);
   const [key] = await db
     .insert(apiKeys)
     .values({
+      businessId,
       apiKey: rawKey,
       name,
       keyPrefix,
@@ -126,10 +125,9 @@ export async function DELETE(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const { apiKeys } = getTenantSchema(business.orgId);
   await db
     .delete(apiKeys)
-    .where(eq(apiKeys.id, keyId));
+    .where(and(eq(apiKeys.id, keyId), eq(apiKeys.businessId, businessId)));
 
   return NextResponse.json({ success: true });
 }

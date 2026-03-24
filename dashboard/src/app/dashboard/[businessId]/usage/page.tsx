@@ -1,7 +1,7 @@
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { businesses, organizations } from "@/db/schema";
-import { getTenantSchema } from "@/db/tenant-schema";
+import { getBusinessSchema } from "@/db/business-schema";
 import { eq, sum } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import {
@@ -39,7 +39,7 @@ export default async function UsagePage({
   const plan = org?.plan ?? "trial";
   const isTrialPlan = plan === "trial";
 
-  const t = getTenantSchema(business.orgId);
+  const t = getBusinessSchema(businessId);
   const [storageResult] = await db
     .select({ totalSize: sum(t.documents.size) })
     .from(t.documents);
