@@ -48,7 +48,6 @@ interface Document {
   id: string;
   name: string;
   filename?: string;
-  fileUrl: string;
   size: number;
   mimeType: string;
   active: boolean;
@@ -258,7 +257,6 @@ export default function DocumentsPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             fileKey: data.fileKey,
-            fileUrl: data.fileUrl,
             fileName: data.fileName,
             fileSize: data.fileSize,
             mimeType: data.mimeType,
@@ -290,6 +288,7 @@ export default function DocumentsPage() {
       const data = await res.json();
       if (res.ok) {
         toast.success("Ingestion job started successfully!");
+        setLatestJob(data.job);
         fetchLatestJob();
       } else {
         toast.error(data.error || "Failed to start ingestion");
@@ -717,7 +716,7 @@ export default function DocumentsPage() {
                   Download to view.
                 </p>
                 <a
-                  href={previewDoc?.doc.fileUrl}
+                  href={previewDoc?.url ?? undefined}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"

@@ -2,7 +2,7 @@ import { auth } from "@/auth";
 import { db } from "@/db";
 import { businesses } from "@/db/schema";
 import { getBusinessSchema } from "@/db/business-schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, desc } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { ECSClient, RunTaskCommand } from "@aws-sdk/client-ecs";
 
@@ -252,9 +252,12 @@ export async function GET(
   const jobs = await db
     .select()
     .from(t.ingestionJobs)
-    .orderBy(t.ingestionJobs.createdOn)
+    .orderBy(
+      desc(t.ingestionJobs.createdOn),
+      desc(t.ingestionJobs.lastUpdatedOn),
+      desc(t.ingestionJobs.id)
+    )
     .limit(5);
 
-  // Return in descending order (most recent first)
-  return NextResponse.json(jobs.reverse());
+  return NextResponse.json(jobs);
 }

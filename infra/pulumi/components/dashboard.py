@@ -166,6 +166,17 @@ class DashboardApp(pulumi.ComponentResource):
             tags=self.tags,
             opts=pulumi.ResourceOptions(parent=self)
         )
+        aws.ec2.SecurityGroupRule(
+            f"{name}-db-access",
+            type="ingress",
+            protocol="tcp",
+            from_port=5432,
+            to_port=5432,
+            security_group_id=base_infra.db_sg.id,
+            source_security_group_id=self.ecs_sg.id,
+            description="Allow dashboard ECS tasks to connect to Postgres",
+            opts=pulumi.ResourceOptions(parent=self)
+        )
 
         # ── 5. Application Load Balancer ─────────────────────────────────────
         # ALB and TG names have a 32-char AWS limit.

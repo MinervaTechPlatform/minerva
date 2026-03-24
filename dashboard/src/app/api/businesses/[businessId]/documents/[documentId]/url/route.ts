@@ -8,6 +8,14 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { s3Client, S3_BUCKET } from "@/lib/s3";
 
+function getS3KeyFromStoragePath(storagePath: string) {
+  const prefix = `s3://${S3_BUCKET}/`;
+  if (!storagePath.startsWith(prefix)) {
+    throw new Error(`Invalid storage path for bucket ${S3_BUCKET}: ${storagePath}`);
+  }
+  return storagePath.slice(prefix.length);
+}
+
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ businessId: string; documentId: string }> }
@@ -46,7 +54,7 @@ export async function GET(
     // Generate short-lived presigned GET URL (expires in 15 minutes)
     const command = new GetObjectCommand({
       Bucket: S3_BUCKET,
-      Key: doc.s3Path,
+      Key: getS3KeyFromStoragePath(doc.storagePath),
       ResponseContentType: doc.mimeType ?? undefined,
       ResponseContentDisposition: "inline",
     });

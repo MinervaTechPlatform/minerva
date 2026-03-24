@@ -31,10 +31,10 @@ _DEFAULT_EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"
 async def process_job(job_id: str) -> bool:
     """Run the full ingestion pipeline for a given job ID."""
     job_uuid = uuid.UUID(job_id)
-    schema_name = os.environ.get("TENANT_SCHEMA")
+    schema_name = os.environ.get("BUSINESS_SCHEMA")
     
     if not schema_name:
-        logger.error("TENANT_SCHEMA environment variable is required.")
+        logger.error("BUSINESS_SCHEMA environment variable is required.")
         return False
 
     repo = IngestionRepository(schema_name)

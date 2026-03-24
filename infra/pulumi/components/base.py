@@ -52,31 +52,10 @@ class BaseInfra(pulumi.ComponentResource):
             opts=pulumi.ResourceOptions(parent=self)
         )
 
-        # 5. Security Group for Public-facing components (e.g. Dashboard)
-        # This allows us to avoid hardcoding CIDRs and use SG nesting
-        self.public_assets_sg = aws.ec2.SecurityGroup(
-            f"{name}-public-assets-sg",
-            vpc_id=self.vpc.vpc_id,
-            description="Security Group for public-facing assets like Dashboard",
-            tags=self.tags,
-            opts=pulumi.ResourceOptions(parent=self)
-        )
-
         self.db_sg = aws.ec2.SecurityGroup(
             f"{name}-db-sg",
             vpc_id=self.vpc.vpc_id,
-            description="Allow Postgres access from Public Subnets only",
-            ingress=[
-                {
-                    "protocol": "tcp",
-                    "from_port": 5432,
-                    "to_port": 5432,
-                    # We allow the specific Security Group of your dashboard component.
-                    # When you deploy your dashboard on EC2 or ECS, simply attach 
-                    # 'public_assets_sg' to it.
-                    "security_groups": [self.public_assets_sg.id],
-                }
-            ],
+            description="Security group for the Postgres instance",
             tags=self.tags,
             opts=pulumi.ResourceOptions(parent=self)
         )
@@ -129,5 +108,4 @@ class BaseInfra(pulumi.ComponentResource):
             "bucket_name": self.bucket.id,
             "db_address": self.db.address,
             "db_url": self.db_url,
-            "public_assets_sg_id": self.public_assets_sg.id
         })

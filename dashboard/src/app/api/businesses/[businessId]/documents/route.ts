@@ -11,6 +11,22 @@ import { getPlanLimits } from "@/lib/plans";
 import type { PlanType } from "@/lib/plans";
 import { randomUUID } from "crypto";
 
+function getPublicFileUrl(fileKey: string) {
+  return `${process.env.S3_ENDPOINT}/${S3_BUCKET}/${fileKey}`;
+}
+
+function getStoragePath(fileKey: string) {
+  return `s3://${S3_BUCKET}/${fileKey}`;
+}
+
+function getS3KeyFromStoragePath(storagePath: string) {
+  const prefix = `s3://${S3_BUCKET}/`;
+  if (!storagePath.startsWith(prefix)) {
+    throw new Error(`Invalid storage path for bucket ${S3_BUCKET}: ${storagePath}`);
+  }
+  return storagePath.slice(prefix.length);
+}
+
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ businessId: string }> }
@@ -111,13 +127,10 @@ export async function POST(
     expiresIn: 3600,
   });
 
-  const fileUrl = `${process.env.S3_ENDPOINT}/${S3_BUCKET}/${fileKey}`;
-
   // Return presigned URL + metadata for the client to upload, then confirm
   return NextResponse.json({
     uploadUrl,
     fileKey,
-    fileUrl,
     fileName,
     fileSize,
     mimeType,
@@ -135,9 +148,9 @@ export async function PUT(
   }
 
   const { businessId } = await params;
-  const { fileKey, fileUrl, fileName, fileSize, mimeType } = await req.json();
+  const { fileKey, fileName, fileSize, mimeType } = await req.json();
 
-  if (!fileKey || !fileUrl || !fileName || !fileSize || !mimeType) {
+  if (!fileKey || !fileName || !fileSize || !mimeType) {
     return NextResponse.json(
       { error: "Missing required fields" },
       { status: 400 }
@@ -157,13 +170,14 @@ export async function PUT(
   }
 
   const { documents } = getBusinessSchema(businessId);
+  const storagePath = getStoragePath(fileKey);
   const [doc] = await db
     .insert(documents)
     .values({
       filename: fileName,
       fileType: mimeType,
-      s3Path: fileKey,
-      fileUrl,
+      storagePath,
+      fileUrl: getPublicFileUrl(fileKey),
       size: fileSize,
       mimeType,
     })
@@ -217,7 +231,7 @@ export async function DELETE(
     await s3Client.send(
       new DeleteObjectCommand({
         Bucket: S3_BUCKET,
-        Key: doc.s3Path,
+        Key: getS3KeyFromStoragePath(doc.storagePath),
       })
     );
   } catch {

@@ -5,6 +5,9 @@ class IngestionWorker(pulumi.ComponentResource):
     def __init__(self, name: str, env: str, base_infra, opts: pulumi.ResourceOptions = None):
         super().__init__("minerva:ingestion:IngestionWorker", name, {}, opts)
 
+        aws_config = pulumi.Config("aws")
+        region = aws_config.get("region") or "us-east-1"
+
         self.tags = {
             "env": env,
             "component": "ingestion"
@@ -54,25 +57,38 @@ class IngestionWorker(pulumi.ComponentResource):
             execution_role_arn=base_infra.ecs_execution_role.arn,
             task_role_arn=self.task_role.arn,
             tags=self.tags,
-            container_definitions=pulumi.Output.format('''[
+            container_definitions=pulumi.Output.all(
+                repo_url=self.repo.repository_url,
+                bucket_name=base_infra.bucket.id,
+                db_host=base_infra.db.address,
+                db_password=base_infra.db_password.result,
+                log_group=self.log_group.name,
+            ).apply(lambda args: f'''[
                 {{
                     "name": "ingestion",
-                    "image": "{0}",
+                    "image": "{args["repo_url"]}:latest",
                     "essential": true,
                     "environment": [
-                        {{"name": "S3_BUCKET", "value": "{1}"}},
-                        {{"name": "DATABASE_URL", "value": "{2}"}}
+                        {{"name": "S3_BUCKET", "value": "{args["bucket_name"]}"}},
+                        {{"name": "AWS_REGION", "value": "{region}"}},
+                        {{"name": "STORAGE_TYPE", "value": "s3"}},
+                        {{"name": "ENV", "value": "{env}"}},
+                        {{"name": "DB_HOST", "value": "{args["db_host"]}"}},
+                        {{"name": "DB_PORT", "value": "5432"}},
+                        {{"name": "DB_NAME", "value": "minerva"}},
+                        {{"name": "DB_USER", "value": "postgres"}},
+                        {{"name": "DB_PASSWORD", "value": "{args["db_password"]}"}}
                     ],
                     "logConfiguration": {{
                         "logDriver": "awslogs",
                         "options": {{
-                            "awslogs-group": "{3}",
-                            "awslogs-region": "{4}",
+                            "awslogs-group": "{args["log_group"]}",
+                            "awslogs-region": "{region}",
                             "awslogs-stream-prefix": "ecs"
                         }}
                     }}
                 }}
-            ]''', self.repo.repository_url, base_infra.bucket.id, base_infra.db_url, self.log_group.name, aws.get_region().region),
+            ]'''),
             opts=pulumi.ResourceOptions(parent=self)
         )
         self.repo_url = self.repo.repository_url
@@ -91,6 +107,17 @@ class IngestionWorker(pulumi.ComponentResource):
                 "cidr_blocks": ["0.0.0.0/0"],
             }],
             tags=self.tags,
+            opts=pulumi.ResourceOptions(parent=self)
+        )
+        aws.ec2.SecurityGroupRule(
+            f"{name}-db-access",
+            type="ingress",
+            protocol="tcp",
+            from_port=5432,
+            to_port=5432,
+            security_group_id=base_infra.db_sg.id,
+            source_security_group_id=self.ingestion_sg.id,
+            description="Allow ingestion ECS tasks to connect to Postgres",
             opts=pulumi.ResourceOptions(parent=self)
         )
         self.ingestion_sg_id = self.ingestion_sg.id
