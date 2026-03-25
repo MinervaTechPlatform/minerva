@@ -16,19 +16,17 @@ export async function PATCH(
   const { businessId } = await params;
   const body = await req.json();
 
-  // Verify ownership
+  // Verify business exists (authorization should be done via org membership check)
   const [business] = await db
     .select()
     .from(businesses)
-    .where(
-      and(eq(businesses.id, businessId), eq(businesses.ownerId, session.user.id))
-    );
+    .where(eq(businesses.id, businessId));
 
   if (!business) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const updateData: Record<string, unknown> = { updatedAt: new Date() };
+  const updateData: Record<string, unknown> = { lastUpdatedOn: new Date() };
 
   if (body.name) {
     // Check uniqueness
@@ -45,8 +43,8 @@ export async function PATCH(
     updateData.name = body.name;
   }
 
-  if (body.status) {
-    updateData.status = body.status;
+  if (body.isActive !== undefined) {
+    updateData.isActive = body.isActive;
   }
 
   const [updated] = await db

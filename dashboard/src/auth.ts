@@ -2,7 +2,8 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { db } from "@/db";
-import { users, accounts, sessions, verificationTokens } from "@/db/schema";
+import { users, accounts, sessions, verificationTokens, orgMembers } from "@/db/schema";
+import { eq } from "drizzle-orm";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: DrizzleAdapter(db, {
@@ -19,12 +20,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async session({ session, user }) {
       if (session.user) {
         session.user.id = user.id;
-        // Fetch plan from db
-        const dbUser = await db.query.users.findFirst({
-          where: (u, { eq }) => eq(u.id, user.id),
-        });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (session.user as any).plan = dbUser?.plan ?? "trial";
+
+        // Populate activeOrgId: the first org this user belongs to.
+        // On the frontend, users can switch org by hitting PATCH /api/users/me/active-org
+        // and storing the preferred orgId in a cookie; this is the fallback.
+        const [firstMembership] = await db
+          .select({ orgId: orgMembers.orgId })
+          .from(orgMembers)
+          .where(eq(orgMembers.userId, user.id))
+          .limit(1);
+
+        session.user.activeOrgId = firstMembership?.orgId ?? null;
       }
       return session;
     },

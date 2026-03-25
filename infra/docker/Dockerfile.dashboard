@@ -1,0 +1,58 @@
+# ── Stage 1: Install dependencies ────────────────────────────────────────────
+FROM node:20-alpine AS deps
+RUN corepack enable && corepack prepare pnpm@latest --activate
+WORKDIR /app
+# Copy lockfile + manifests first for layer caching
+COPY dashboard/package.json dashboard/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+# ── Stage 2: Build the Next.js app ───────────────────────────────────────────
+FROM node:20-alpine AS builder
+RUN corepack enable && corepack prepare pnpm@latest --activate
+WORKDIR /app
+# Copy installed node_modules from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+# Copy the full dashboard source
+COPY dashboard/ .
+# Build — produces .next/standalone and .next/static
+RUN pnpm run build
+
+# ── Stage 2.5: Minimal migration tooling ─────────────────────────────────────
+FROM node:20-alpine AS migrate-deps
+WORKDIR /migrate-tools
+RUN npm init -y
+RUN npm install --omit=dev drizzle-kit@0.31.9 drizzle-orm@0.45.1 pg@8.20.0 dotenv@17.3.1
+
+# ── Stage 3: Minimal production runner ───────────────────────────────────────
+FROM node:20-alpine AS runner
+ENV NODE_ENV=production
+WORKDIR /app
+
+# Non-root user for security
+RUN apk add --no-cache curl && \
+    addgroup --system --gid 1001 nodejs && \
+    adduser  --system --uid 1001 nextjs
+
+# Copy only what's needed to run the server
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static    ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/public          ./public
+COPY --from=migrate-deps --chown=nextjs:nodejs /migrate-tools ./migrate-tools
+COPY --from=builder --chown=nextjs:nodejs /app/drizzle.config.ts ./drizzle.config.ts
+COPY --from=builder --chown=nextjs:nodejs /app/src/db          ./src/db
+COPY --chown=nextjs:nodejs infra/docker/dashboard-entrypoint.sh ./dashboard-entrypoint.sh
+
+# Give nextjs ownership of the working directory itself so it can write
+# runtime files (e.g. global-bundle.pem downloaded by the entrypoint).
+# COPY --chown sets ownership only on the copied files, not on the WORKDIR entry.
+RUN chown nextjs:nodejs /app
+
+USER nextjs
+EXPOSE 3000
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+ENV NODE_PATH="/app/migrate-tools/node_modules"
+
+# Push the latest Drizzle schema on boot, then start Next. We still override
+# HOSTNAME because ECS injects a non-resolvable container hostname at runtime.
+CMD ["sh", "./dashboard-entrypoint.sh"]

@@ -1,27 +1,17 @@
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { businesses, documents } from "@/db/schema";
+import { businesses, organizations } from "@/db/schema";
+import { getBusinessSchema } from "@/db/business-schema";
 import { eq, sum } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import {
-  Crown,
-  HardDrive,
-  MessageSquare,
-  Mic,
-  Building2,
-  Check,
-  Sparkles,
-} from "lucide-react";
+import { Crown, HardDrive, MessageSquare, Mic, Building2, Zap } from "lucide-react";
+import Link from "next/link";
 
 export default async function UsagePage({
   params,
@@ -40,27 +30,34 @@ export default async function UsagePage({
 
   if (!business) redirect("/");
 
-  const [storageResult] = await db
-    .select({ totalSize: sum(documents.size) })
-    .from(documents)
-    .where(eq(documents.businessId, businessId));
+  // Fetch real plan from org
+  const [org] = await db
+    .select({ plan: organizations.plan, name: organizations.name })
+    .from(organizations)
+    .where(eq(organizations.id, business.orgId));
 
-  const totalStorage = Number(storageResult?.totalSize || 0);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const plan = ((session.user as any).plan as string) || "trial";
+  const plan = org?.plan ?? "trial";
   const isTrialPlan = plan === "trial";
 
-  const userBusinesses = await db
-    .select()
+  const t = getBusinessSchema(businessId);
+  const [storageResult] = await db
+    .select({ totalSize: sum(t.documents.size) })
+    .from(t.documents);
+
+  const totalStorage = Number(storageResult?.totalSize || 0);
+
+  // Count businesses in org
+  const orgBusinessCount = await db
+    .select({ id: businesses.id })
     .from(businesses)
-    .where(eq(businesses.ownerId, session.user.id));
+    .where(eq(businesses.orgId, business.orgId));
 
   const usageItems = [
     {
       label: "Businesses",
-      used: userBusinesses.length,
-      limit: isTrialPlan ? 1 : "Unlimited",
-      percentage: isTrialPlan ? (userBusinesses.length / 1) * 100 : 10,
+      used: orgBusinessCount.length,
+      limit: isTrialPlan ? 1 : "∞",
+      percentage: isTrialPlan ? (orgBusinessCount.length / 1) * 100 : 10,
       icon: Building2,
       color: "text-violet-500 dark:text-violet-400",
     },
@@ -92,149 +89,73 @@ export default async function UsagePage({
     },
   ];
 
-  const trialFeatures = [
-    "1 business",
-    "100 MB document storage",
-    "10 text chat requests",
-    "10 speech chat requests",
-  ];
-
-  const proFeatures = [
-    "Unlimited businesses",
-    "10 GB document storage",
-    "Credits-based text chats",
-    "Credits-based speech chats",
-    "Priority support",
-    "Advanced analytics",
-    "Custom integrations",
-  ];
-
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-foreground">Usage & Plan</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Monitor your usage and manage your subscription
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">Usage</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Monitor usage for <span className="font-medium text-foreground">{org?.name}</span>
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <Crown className={`w-4 h-4 ${isTrialPlan ? "text-muted-foreground" : "text-amber-500"}`} />
+            <Badge variant="outline" className="capitalize text-xs">{plan}</Badge>
+          </div>
+          {isTrialPlan && (
+            <Link
+              href="/dashboard/upgrade"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 hover:bg-primary/15 border border-primary/20 text-primary text-xs font-semibold px-3 h-8 transition-colors"
+            >
+              <Zap className="w-3.5 h-3.5" />
+              Upgrade to Pro
+            </Link>
+          )}
+        </div>
       </div>
 
-      {/* Current Plan */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Crown
-                className={`w-5 h-5 ${
-                  isTrialPlan ? "text-muted-foreground" : "text-amber-500"
-                }`}
-              />
-              <div>
-                <CardTitle className="text-base">
-                  {isTrialPlan ? "Trial Plan" : "Pro Plan"}
-                </CardTitle>
-                <CardDescription>
-                  {isTrialPlan
-                    ? "Limited features for evaluation"
-                    : "Full access to all features"}
-                </CardDescription>
-              </div>
-            </div>
-            <Badge
-              className={`${
-                isTrialPlan
-                  ? "bg-muted text-muted-foreground"
-                  : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-              }`}
-            >
-              {isTrialPlan ? "Trial" : "Pro"}
-            </Badge>
-          </div>
-        </CardHeader>
-      </Card>
-
-      {/* Usage */}
+      {/* Usage metrics */}
       <div className="grid gap-4 md:grid-cols-2">
         {usageItems.map((item) => (
           <Card key={item.label}>
             <CardContent className="pt-6">
               <div className="flex items-center gap-3 mb-3">
-                <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center">
+                <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center shrink-0">
                   <item.icon className={`w-4 h-4 ${item.color}`} />
                 </div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-foreground">
-                    {item.label}
-                  </p>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground">{item.label}</p>
                   <p className="text-xs text-muted-foreground">
                     {item.used} / {item.limit}
                   </p>
                 </div>
               </div>
-              <Progress
-                value={Math.min(item.percentage, 100)}
-                className="h-2"
-              />
+              <Progress value={Math.min(item.percentage, 100)} className="h-1.5" />
             </CardContent>
           </Card>
         ))}
       </div>
 
-      {/* Plan comparison */}
+      {/* Upgrade nudge for trial */}
       {isTrialPlan && (
-        <div className="grid gap-4 md:grid-cols-2">
-          {/* Trial */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                Trial Plan
-                <Badge variant="outline" className="text-xs">
-                  Current
-                </Badge>
-              </CardTitle>
-              <CardDescription>Basic features to get started</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-2.5">
-                {trialFeatures.map((feature) => (
-                  <li
-                    key={feature}
-                    className="flex items-center gap-2 text-sm text-muted-foreground"
-                  >
-                    <Check className="w-4 h-4 text-muted-foreground/60" />
-                    {feature}
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-
-          {/* Pro */}
-          <Card className="border-primary/30 bg-primary/5 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-bl-full" />
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-primary" />
-                Pro Plan
-              </CardTitle>
-              <CardDescription>Everything you need to scale</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <ul className="space-y-2.5">
-                {proFeatures.map((feature) => (
-                  <li
-                    key={feature}
-                    className="flex items-center gap-2 text-sm text-foreground"
-                  >
-                    <Check className="w-4 h-4 text-primary" />
-                    {feature}
-                  </li>
-                ))}
-              </ul>
-              <Button className="w-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-md mt-4">
-                Upgrade to Pro
-              </Button>
-            </CardContent>
-          </Card>
+        <div className="rounded-xl border border-primary/20 bg-primary/5 p-5 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold text-foreground">
+              You&apos;re on the Trial plan
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Upgrade to Pro for unlimited businesses, 10 GB storage, and more.
+            </p>
+          </div>
+          <Link
+            href={`/dashboard/${businessId}/upgrade`}
+            className="shrink-0 inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold px-4 h-9 hover:bg-primary/90 transition-colors shadow"
+          >
+            <Zap className="w-4 h-4" />
+            Upgrade
+          </Link>
         </div>
       )}
     </div>

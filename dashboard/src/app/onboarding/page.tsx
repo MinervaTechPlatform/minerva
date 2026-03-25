@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,92 +12,268 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Bot, Loader2, Sparkles, ArrowRight } from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Bot, Loader2, Sparkles, ArrowRight, Building2, ChevronRight, Plus, Check, Zap } from "lucide-react";
 
-const BUSINESS_TYPES = [
-  { value: "warehouse", label: "Warehouse" },
+// ─── Options ─────────────────────────────────────────────────────────────────
+
+const INDUSTRIES = [
+  { value: "warehouse", label: "Warehouse & Logistics" },
   { value: "fintech", label: "Fintech" },
   { value: "real_estate", label: "Real Estate" },
-  { value: "custom", label: "Custom" },
+  { value: "healthcare", label: "Healthcare" },
+  { value: "education", label: "Education" },
+  { value: "custom", label: "Other" },
 ];
 
-const BUSINESS_GOALS = [
-  { value: "leads", label: "Lead Generation" },
+const GOALS = [
   { value: "customer_support", label: "Customer Support" },
+  { value: "leads", label: "Lead Generation" },
   { value: "sales", label: "Sales Assistance" },
   { value: "onboarding", label: "User Onboarding" },
   { value: "feedback", label: "Feedback Collection" },
 ];
 
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+type FlowStep =
+  | "org"          // Step 1: select or create org
+  | "business"     // Step 2: enter business name, industry, goal
+  | "provisioning" // Waiting for schema creation
+  | "done";        // Ready — redirect
+
+interface ExistingOrg {
+  id: string;
+  name: string;
+  plan: string;
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
 export default function OnboardingPage() {
   const router = useRouter();
-  const [step, setStep] = useState<"form" | "initializing" | "done">("form");
-  const [name, setName] = useState("");
-  const [type, setType] = useState("");
-  const [goal, setGoal] = useState("");
+
+  const [step, setStep] = useState<FlowStep>("org");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
+  // Form values
+  const [orgName, setOrgName] = useState("");
+  const [businessName, setBusinessName] = useState("");
+  const [industry, setIndustry] = useState("");
+  const [goal, setGoal] = useState("");
+
+  // IDs populated after API calls
+  const [orgId, setOrgId] = useState("");
+  const [businessId, setBusinessId] = useState("");
+  // Set when trial limit hit — used to show upgrade link
+  const [upgradeOrgId, setUpgradeOrgId] = useState("");
+
+  // Org selection state
+  const [existingOrgs, setExistingOrgs] = useState<ExistingOrg[]>([]);
+  // "" = nothing selected, "new" = create new org, or an existing org's id
+  const [selectedOrgOption, setSelectedOrgOption] = useState<string>("");
+
+  // Provisioning status message (cycles while polling)
+  const [provStatus, setProvStatus] = useState("Creating your workspace...");
+
+  // Load existing orgs on mount
+  useEffect(() => {
+    fetch("/api/orgs")
+      .then((r) => r.json())
+      .then((orgs: ExistingOrg[]) => {
+        if (Array.isArray(orgs) && orgs.length > 0) {
+          setExistingOrgs(orgs);
+          // Pre-select first org by default
+          setSelectedOrgOption(orgs[0].id);
+          setOrgId(orgs[0].id);
+          setOrgName(orgs[0].name);
+        } else {
+          // No orgs yet — default to creating a new one
+          setSelectedOrgOption("new");
+        }
+      })
+      .catch(() => {
+        setSelectedOrgOption("new");
+      });
+  }, []);
+
+  function handleOrgOptionSelect(option: string) {
+    setSelectedOrgOption(option);
+    setError("");
+    if (option === "new") {
+      setOrgId("");
+      setOrgName("");
+    } else {
+      const org = existingOrgs.find((o) => o.id === option);
+      if (org) {
+        setOrgId(org.id);
+        setOrgName(org.name);
+      }
+    }
+  }
+
+  // ─── Step 1: Select or create org ─────────────────────────────────────────
+
+  async function handleOrgContinue(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+
+    if (selectedOrgOption === "new") {
+      // Create the org first
+      setLoading(true);
+      try {
+        const res = await fetch("/api/orgs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: orgName }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          if (data.upgradeRequired) {
+            setUpgradeOrgId("dashboard"); // signal to show upgrade button
+          }
+          setError(data.error || "Failed to create organization.");
+          setLoading(false);
+          return;
+        }
+        setOrgId(data.id);
+      } catch {
+        setError("Something went wrong. Please try again.");
+        setLoading(false);
+        return;
+      }
+      setLoading(false);
+    }
+    // orgId already set for existing org selection
+    setStep("business");
+  }
+
+  // ─── Step 2: Create business + trigger schema provisioning ─────────────────
+
+  async function handleCreateBusiness(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setLoading(true);
 
     try {
+      // 1. Create business record FIRST (so trial limit check runs)
       const res = await fetch("/api/businesses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, type, goal }),
+        body: JSON.stringify({ name: businessName, orgId, industry, goal }),
       });
-
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || "Something went wrong");
+        if (data.upgradeRequired) {
+          // Trial limit hit — redirect to upgrade page
+          // We need a businessId for the upgrade URL; use the existing first business
+          setUpgradeOrgId(orgId);
+          setError(data.error);
+        } else {
+          setError(data.error || "Failed to create business.");
+        }
         setLoading(false);
         return;
       }
 
-      setStep("initializing");
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const newBusinessId = data.id;
+      setBusinessId(newBusinessId);
+      setStep("provisioning");
 
-      setStep("done");
-      setTimeout(() => {
-        router.push(`/dashboard/${data.id}`);
-      }, 500);
+      // 2. Trigger async schema creation (fire-and-forget)
+      await fetch(`/api/orgs/${orgId}/setup`, { method: "POST" });
+
+      // 3. Poll for schema readiness
+      setProvStatus("Setting up your workspace...");
+      await pollForReady(orgId, newBusinessId);
+
     } catch {
-      setError("Failed to create business. Please try again.");
+      setError("Something went wrong. Please try again.");
       setLoading(false);
     }
   }
 
-  if (step === "initializing" || step === "done") {
+  // ─── Polling ───────────────────────────────────────────────────────────────
+
+  async function pollForReady(id: string, bizId?: string) {
+    const resolvedBizId = bizId || businessId;
+    const messages = [
+      "Setting up your workspace...",
+      "Initialising database schema...",
+      "Configuring your AI space...",
+      "Almost ready...",
+    ];
+    let attempt = 0;
+
+    while (true) {
+      setProvStatus(messages[attempt % messages.length]);
+      await wait(1500);
+
+      try {
+        const res = await fetch(`/api/orgs/${id}/status`);
+        const data = await res.json();
+
+        if (data.status === "ready") {
+          setStep("done");
+          await wait(800);
+          router.refresh();
+          router.push(`/dashboard/${resolvedBizId}`);
+          return;
+        }
+      } catch {
+        // Ignore transient fetch errors, keep polling
+      }
+
+      attempt++;
+      if (attempt > 60) {
+        setError("Setup is taking longer than expected. Please refresh the page.");
+        setStep("business");
+        setLoading(false);
+        return;
+      }
+    }
+  }
+
+  function wait(ms: number) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  // ─── Provisioning / Done screens ──────────────────────────────────────────
+
+  if (step === "provisioning" || step === "done") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center space-y-6">
+        <div className="text-center space-y-6 max-w-sm px-4">
           <div className="relative inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-primary shadow-lg shadow-primary/20">
             <Bot className="w-10 h-10 text-primary-foreground" />
-            {step === "initializing" && (
+            {step === "provisioning" && (
               <div className="absolute inset-0 rounded-2xl border-2 border-primary/50 animate-ping" />
             )}
           </div>
+
           <div>
             <h2 className="text-xl font-semibold text-foreground">
-              {step === "initializing"
-                ? "Setting up your project..."
-                : "All set!"}
+              {step === "provisioning" ? provStatus : "All set!"}
             </h2>
-            <p className="text-muted-foreground mt-2">
-              {step === "initializing"
-                ? "Configuring your AI speech bot. This will only take a moment."
+            <p className="text-muted-foreground mt-2 text-sm">
+              {step === "provisioning"
+                ? "This only takes a moment. Sit tight."
                 : "Redirecting you to your dashboard..."}
             </p>
           </div>
-          {step === "initializing" && (
+
+          {step === "provisioning" && (
             <div className="flex items-center justify-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin text-primary" />
-              <span className="text-sm text-primary">Initializing...</span>
+              <span className="text-sm text-primary">Working...</span>
             </div>
           )}
           {step === "done" && (
@@ -106,97 +282,333 @@ export default function OnboardingPage() {
               <span className="text-sm text-emerald-600 dark:text-emerald-400">Ready!</span>
             </div>
           )}
+
+          {error && (
+            <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">
+              {error}
+            </p>
+          )}
         </div>
       </div>
     );
   }
 
+  // ─── Form ─────────────────────────────────────────────────────────────────
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-lg shadow-xl">
-        <CardHeader className="text-center space-y-1 pb-6">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary mx-auto mb-2 shadow-lg shadow-primary/20">
-            <Bot className="w-6 h-6 text-primary-foreground" />
-          </div>
-          <CardTitle className="text-xl">Create Your First Business</CardTitle>
-          <CardDescription>
-            Set up your AI speech bot in just a few steps
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="space-y-2">
-              <Label htmlFor="name">Business Name</Label>
-              <Input
-                id="name"
-                placeholder="e.g. Acme Corp"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
-              <p className="text-xs text-muted-foreground">
-                Must be unique across all users
-              </p>
+      <div className="w-full max-w-lg space-y-4">
+
+        {/* Progress indicator */}
+        <div className="flex items-center gap-2 justify-center mb-6">
+          <StepBadge n={1} label="Organization" active={step === "org"} done={step === "business"} />
+          <ChevronRight className="w-4 h-4 text-muted-foreground/40" />
+          <StepBadge n={2} label="Business" active={step === "business"} done={false} />
+        </div>
+
+        <Card className="shadow-xl">
+          <CardHeader className="text-center space-y-1 pb-6">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary mx-auto mb-2 shadow-lg shadow-primary/20">
+              {step === "org" ? (
+                <Building2 className="w-6 h-6 text-primary-foreground" />
+              ) : (
+                <Bot className="w-6 h-6 text-primary-foreground" />
+              )}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="type">Business Type</Label>
-              <Select value={type} onValueChange={(v) => setType(v ?? "")} required>
-                <SelectTrigger id="type">
-                  <SelectValue placeholder="Select type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {BUSINESS_TYPES.map((t) => (
-                    <SelectItem key={t.value} value={t.value}>
-                      {t.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {step === "org" ? (
+              <>
+                <CardTitle className="text-xl">
+                  {existingOrgs.length > 0 ? "Choose an Organization" : "Create your Organization"}
+                </CardTitle>
+                <CardDescription>
+                  {existingOrgs.length > 0
+                    ? "Select an existing org or create a new one for this business."
+                    : "An organization is your top-level workspace. You can add multiple businesses inside it."}
+                </CardDescription>
+              </>
+            ) : (
+              <>
+                <CardTitle className="text-xl">Set up your first Business</CardTitle>
+                <CardDescription>
+                  A business is where your AI bot lives. You can always add more later.
+                </CardDescription>
+              </>
+            )}
+          </CardHeader>
 
-            <div className="space-y-2">
-              <Label htmlFor="goal">Primary Goal</Label>
-              <Select value={goal} onValueChange={(v) => setGoal(v ?? "")} required>
-                <SelectTrigger id="goal">
-                  <SelectValue placeholder="Select goal" />
-                </SelectTrigger>
-                <SelectContent>
-                  {BUSINESS_GOALS.map((g) => (
-                    <SelectItem key={g.value} value={g.value}>
-                      {g.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+          <CardContent>
+            {/* ── Step 1: Org form ── */}
+            {step === "org" && (
+              <form onSubmit={handleOrgContinue} className="space-y-4">
 
-            {error && (
-              <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">
-                {error}
-              </p>
+                {/* Existing org cards */}
+                {existingOrgs.length > 0 && (
+                  <div className="space-y-2">
+                    {existingOrgs.map((org) => (
+                      <button
+                        key={org.id}
+                        type="button"
+                        onClick={() => handleOrgOptionSelect(org.id)}
+                        className={`w-full flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
+                          selectedOrgOption === org.id
+                            ? "border-primary bg-primary/5"
+                            : "border-border hover:border-primary/40 hover:bg-muted/40"
+                        }`}
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                          <Building2 className="w-4 h-4 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">{org.name}</p>
+                          <p className="text-xs text-muted-foreground capitalize">{org.plan} plan</p>
+                        </div>
+                        {selectedOrgOption === org.id && (
+                          <Check className="w-4 h-4 text-primary shrink-0" />
+                        )}
+                      </button>
+                    ))}
+
+                    {/* Create new org option */}
+                    <button
+                      type="button"
+                      onClick={() => handleOrgOptionSelect("new")}
+                      className={`w-full flex items-center gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
+                        selectedOrgOption === "new"
+                          ? "border-primary bg-primary/5"
+                          : "border-dashed border-border hover:border-primary/40 hover:bg-muted/40"
+                      }`}
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                        <Plus className="w-4 h-4 text-muted-foreground" />
+                      </div>
+                      <p className="text-sm font-medium text-foreground">Create a new organization</p>
+                      {selectedOrgOption === "new" && (
+                        <Check className="w-4 h-4 text-primary shrink-0 ml-auto" />
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {/* Name input — shown when creating a new org */}
+                {selectedOrgOption === "new" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="orgName">Organization Name</Label>
+                    <Input
+                      id="orgName"
+                      placeholder="e.g. Acme Inc."
+                      value={orgName}
+                      onChange={(e) => setOrgName(e.target.value)}
+                      required
+                      autoFocus
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      This is the name of your company or team.
+                    </p>
+                  </div>
+                )}
+
+                {/* Show upgrade block for org trial limit */}
+                {upgradeOrgId && (
+                  <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-4 py-3 space-y-3">
+                    <p className="text-sm text-amber-700 dark:text-amber-400">{error}</p>
+                    <button
+                      type="button"
+                      onClick={() => router.push("/dashboard/upgrade")}
+                      className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold px-3 h-7 hover:bg-primary/90 transition-colors"
+                    >
+                      <Zap className="w-3 h-3" />
+                      Upgrade to Pro
+                    </button>
+                  </div>
+                )}
+                {error && !upgradeOrgId && (
+                  <div className="rounded-lg bg-destructive/10 px-3 py-2">
+                    <p className="text-sm text-destructive">{error}</p>
+                  </div>
+                )}
+
+                <div className="flex gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => router.push("/dashboard")}
+                    disabled={loading}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="flex-grow bg-primary hover:bg-primary/90 text-primary-foreground shadow-md"
+                    disabled={
+                      loading ||
+                      !selectedOrgOption ||
+                      (selectedOrgOption === "new" && !orgName.trim())
+                    }
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      <>
+                        Continue
+                        <ArrowRight className="w-4 h-4 ml-2" />
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </form>
             )}
 
-            <Button
-              type="submit"
-              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-md"
-              disabled={loading || !name || !type || !goal}
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Creating...
-                </>
-              ) : (
-                <>
-                  Create Business
-                  <ArrowRight className="w-4 h-4 ml-2" />
-                </>
-              )}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+            {/* ── Step 2: Business form ── */}
+            {step === "business" && (
+              <form onSubmit={handleCreateBusiness} className="space-y-5">
+                <div className="space-y-2">
+                  <Label htmlFor="businessName">Business Name</Label>
+                  <Input
+                    id="businessName"
+                    placeholder="e.g. Acme Support Bot"
+                    value={businessName}
+                    onChange={(e) => setBusinessName(e.target.value)}
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="industry">Industry</Label>
+                  <Select value={industry} onValueChange={(v) => setIndustry(v ?? "")} required>
+                    <SelectTrigger id="industry">
+                      <SelectValue placeholder="Select industry" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {INDUSTRIES.map((i) => (
+                        <SelectItem key={i.value} value={i.value}>
+                          {i.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="goal">Primary Goal</Label>
+                  <Select value={goal} onValueChange={(v) => setGoal(v ?? "")} required>
+                    <SelectTrigger id="goal">
+                      <SelectValue placeholder="Select goal" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {GOALS.map((g) => (
+                        <SelectItem key={g.value} value={g.value}>
+                          {g.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Error / upgrade-required */}
+                {upgradeOrgId && (
+                  <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-4 py-3 space-y-3">
+                    <p className="text-sm text-amber-700 dark:text-amber-400">{error}</p>
+                    <button
+                      type="button"
+                      onClick={() => router.push("/dashboard/upgrade")}
+                      className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold px-3 h-7 hover:bg-primary/90 transition-colors"
+                    >
+                      <Zap className="w-3 h-3" />
+                      Upgrade to Pro
+                    </button>
+                  </div>
+                )}
+                {error && !upgradeOrgId && (
+                  <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">
+                    {error}
+                  </p>
+                )}
+
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => setStep("org")}
+                    disabled={loading}
+                  >
+                    Back
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="flex-1"
+                    onClick={() => router.push("/dashboard")}
+                    disabled={loading}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="flex-2 flex-grow bg-primary hover:bg-primary/90 text-primary-foreground shadow-md"
+                    disabled={loading || !businessName.trim() || !industry || !goal || !!upgradeOrgId}
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      <>
+                        Launch
+                        <ArrowRight className="w-4 h-4 ml-2" />
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </form>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ─── Helper component ─────────────────────────────────────────────────────────
+
+function StepBadge({
+  n,
+  label,
+  active,
+  done,
+}: {
+  n: number;
+  label: string;
+  active: boolean;
+  done: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <div
+        className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold transition-colors ${
+          active
+            ? "bg-primary text-primary-foreground"
+            : done
+            ? "bg-emerald-500 text-white"
+            : "bg-muted text-muted-foreground"
+        }`}
+      >
+        {n}
+      </div>
+      <span
+        className={`text-sm ${
+          active ? "text-foreground font-medium" : "text-muted-foreground"
+        }`}
+      >
+        {label}
+      </span>
     </div>
   );
 }

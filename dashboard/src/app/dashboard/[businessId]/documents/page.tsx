@@ -28,29 +28,71 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { UpgradeBanner } from "@/components/upgrade-banner";
 import {
   FileText,
   Upload,
   Trash2,
   Loader2,
   FileUp,
-  AlertCircle,
   File,
   Eye,
-  X,
+  Zap,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 
 interface Document {
   id: string;
   name: string;
-  fileUrl: string;
+  filename?: string;
   size: number;
   mimeType: string;
-  ingestionStatus: string;
   active: boolean;
   createdAt: string;
+}
+
+interface DocumentApiResponse extends Omit<Document, "name"> {
+  name?: string;
+  filename?: string;
+}
+
+interface IngestionJob {
+  id: string;
+  status: string; // initiated | in_progress | success | failed
+  ecsTaskArn?: string | null;
+  errorMessage?: string | null;
+  chunksProcessed?: number | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  createdOn?: string | null;
+}
+
+const INGESTION_STALE_AFTER_MS = 5 * 60 * 1000;
+
+function normalizeDocument(doc: DocumentApiResponse): Document {
+  return {
+    ...doc,
+    name: doc.name ?? doc.filename ?? "Untitled document",
+  };
+}
+
+function isJobStale(job: IngestionJob | null) {
+  if (!job) {
+    return false;
+  }
+
+  if (job.status !== "initiated" && job.status !== "in_progress") {
+    return false;
+  }
+
+  if (!job.createdOn) {
+    return false;
+  }
+
+  return Date.now() - new Date(job.createdOn).getTime() >= INGESTION_STALE_AFTER_MS;
 }
 
 function formatSize(bytes: number) {
@@ -59,23 +101,67 @@ function formatSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function JobStatusBadge({ status }: { status: string }) {
+  if (status === "success") {
+    return (
+      <Badge variant="outline" className="border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 gap-1.5">
+        <CheckCircle2 className="w-3 h-3" />
+        Completed
+      </Badge>
+    );
+  }
+  if (status === "in_progress") {
+    return (
+      <Badge variant="outline" className="border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/10 gap-1.5">
+        <Loader2 className="w-3 h-3 animate-spin" />
+        In Progress
+      </Badge>
+    );
+  }
+  if (status === "initiated") {
+    return (
+      <Badge variant="outline" className="border-blue-500/30 text-blue-600 dark:text-blue-400 bg-blue-500/10 gap-1.5">
+        <Clock className="w-3 h-3" />
+        Queued
+      </Badge>
+    );
+  }
+  if (status === "failed") {
+    return (
+      <Badge variant="outline" className="border-red-500/30 text-red-600 dark:text-red-400 bg-red-500/10 gap-1.5">
+        <XCircle className="w-3 h-3" />
+        Failed
+      </Badge>
+    );
+  }
+  return <Badge variant="outline">{status}</Badge>;
+}
+
 export default function DocumentsPage() {
   const params = useParams();
   const businessId = params.businessId as string;
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [ingesting, setIngesting] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<{ doc: Document, url: string | null } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [latestJob, setLatestJob] = useState<IngestionJob | null>(null);
+  const [jobsLoading, setJobsLoading] = useState(true);
+
+  const isLatestJobActive =
+    latestJob?.status === "initiated" || latestJob?.status === "in_progress";
+  const isLatestJobStale = isJobStale(latestJob);
+  const isJobBlocking = isLatestJobActive && !isLatestJobStale;
 
   const fetchDocuments = useCallback(async () => {
     try {
       const res = await fetch(`/api/businesses/${businessId}/documents`);
       if (res.ok) {
-        const data = await res.json();
-        setDocuments(data);
+        const data: DocumentApiResponse[] = await res.json();
+        setDocuments(data.map(normalizeDocument));
       }
     } catch {
       toast.error("Failed to fetch documents");
@@ -84,12 +170,41 @@ export default function DocumentsPage() {
     }
   }, [businessId]);
 
+  const fetchLatestJob = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/businesses/${businessId}/documents/ingest`);
+      if (res.ok) {
+        const jobs: IngestionJob[] = await res.json();
+        setLatestJob(jobs.length > 0 ? jobs[0] : null);
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setJobsLoading(false);
+    }
+  }, [businessId]);
+
   useEffect(() => {
     fetchDocuments();
-  }, [fetchDocuments]);
+    fetchLatestJob();
+  }, [fetchDocuments, fetchLatestJob]);
+
+  // Poll every 10s while a job is active
+  useEffect(() => {
+    if (!isJobBlocking) return;
+    const interval = setInterval(() => {
+      fetchLatestJob();
+      fetchDocuments();
+    }, 10_000);
+    return () => clearInterval(interval);
+  }, [isJobBlocking, fetchLatestJob, fetchDocuments]);
 
   const handleUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    if (isJobBlocking) {
+      toast.error("Cannot upload documents while an ingestion job is in progress.");
+      return;
+    }
 
     const allowedTypes = [
       "application/pdf",
@@ -106,7 +221,7 @@ export default function DocumentsPage() {
       }
 
       try {
-        // Step 1: Get presigned URL (no DB entry yet)
+        // Step 1: Get presigned URL
         const res = await fetch(`/api/businesses/${businessId}/documents`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -136,13 +251,12 @@ export default function DocumentsPage() {
           continue;
         }
 
-        // Step 3: Confirm upload — creates DB entry only on success
+        // Step 3: Confirm upload
         const confirmRes = await fetch(`/api/businesses/${businessId}/documents`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             fileKey: data.fileKey,
-            fileUrl: data.fileUrl,
             fileName: data.fileName,
             fileSize: data.fileSize,
             mimeType: data.mimeType,
@@ -162,6 +276,28 @@ export default function DocumentsPage() {
     setUploading(false);
     setDialogOpen(false);
     fetchDocuments();
+  };
+
+  const handleIngest = async () => {
+    if (isJobBlocking) return;
+    setIngesting(true);
+    try {
+      const res = await fetch(`/api/businesses/${businessId}/documents/ingest`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success("Ingestion job started successfully!");
+        setLatestJob(data.job);
+        fetchLatestJob();
+      } else {
+        toast.error(data.error || "Failed to start ingestion");
+      }
+    } catch {
+      toast.error("Failed to start ingestion");
+    } finally {
+      setIngesting(false);
+    }
   };
 
   const handleDelete = async (docId: string) => {
@@ -203,7 +339,10 @@ export default function DocumentsPage() {
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger
             render={
-              <Button className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm" />
+              <Button
+                className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm"
+                disabled={isJobBlocking || uploading}
+              />
             }
           >
             <Upload className="w-4 h-4 mr-2" />
@@ -232,7 +371,7 @@ export default function DocumentsPage() {
             >
               <FileUp className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
               <p className="text-sm text-foreground mb-1">
-                Drag & drop files here, or
+                Drag &amp; drop files here, or
               </p>
               <label className="cursor-pointer">
                 <span className="text-sm text-primary hover:text-primary/80 font-medium">
@@ -286,13 +425,153 @@ export default function DocumentsPage() {
         </CardContent>
       </Card>
 
+      {/* Ingestion Status Banner */}
+      {!jobsLoading && latestJob && (
+        <Card className={`border ${
+          isLatestJobActive
+            ? "border-amber-500/30 bg-amber-500/5"
+            : latestJob.status === "success"
+            ? "border-emerald-500/30 bg-emerald-500/5"
+            : latestJob.status === "failed"
+            ? "border-red-500/30 bg-red-500/5"
+            : "border-border"
+        }`}>
+          <CardContent className="py-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5">
+                  {isLatestJobActive ? (
+                    <Loader2 className="w-5 h-5 text-amber-500 animate-spin" />
+                  ) : latestJob.status === "success" ? (
+                    <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                  ) : latestJob.status === "failed" ? (
+                    <XCircle className="w-5 h-5 text-red-500" />
+                  ) : (
+                    <Clock className="w-5 h-5 text-blue-500" />
+                  )}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-medium text-foreground">
+                      Last Ingestion Job
+                    </span>
+                    <JobStatusBadge status={latestJob.status} />
+                  </div>
+                  {isJobBlocking && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      Document uploads and new ingestion jobs are locked until this job completes.
+                    </p>
+                  )}
+                  {isLatestJobStale && (
+                    <p className="text-xs text-red-600 dark:text-red-400">
+                      This ingestion has been idle for more than 5 minutes. You can retry now, and the last job will be marked failed automatically.
+                    </p>
+                  )}
+                  {latestJob.status === "success" && latestJob.chunksProcessed != null && (
+                    <p className="text-xs text-muted-foreground">
+                      {latestJob.chunksProcessed} chunk{latestJob.chunksProcessed !== 1 ? "s" : ""} processed
+                      {latestJob.completedAt ? ` · completed ${new Date(latestJob.completedAt).toLocaleString()}` : ""}
+                    </p>
+                  )}
+                  {latestJob.status === "failed" && latestJob.errorMessage && (
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
+                      Error: {latestJob.errorMessage}
+                    </p>
+                  )}
+                  {latestJob.createdOn && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Started: {new Date(latestJob.createdOn).toLocaleString()}
+                    </p>
+                  )}
+                  {(latestJob.ecsTaskArn || latestJob.id) && (
+                    <details className="mt-3 rounded-md border border-border/60 bg-background/60 px-3 py-2">
+                      <summary className="cursor-pointer text-xs font-medium text-muted-foreground select-none">
+                        More info
+                      </summary>
+                      <div className="mt-2 space-y-2 text-xs">
+                        <div>
+                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground/80">
+                            Ingestion Job ID
+                          </p>
+                          <p className="break-all font-mono text-foreground">
+                            {latestJob.id}
+                          </p>
+                        </div>
+                        {latestJob.ecsTaskArn && (
+                          <div>
+                            <p className="text-[11px] uppercase tracking-wide text-muted-foreground/80">
+                              ECS Task ARN
+                            </p>
+                            <p className="break-all font-mono text-foreground">
+                              {latestJob.ecsTaskArn}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </details>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {isLatestJobStale && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-red-500/30 text-red-600 hover:bg-red-500/10 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                    onClick={handleIngest}
+                    disabled={ingesting || documents.length === 0}
+                  >
+                    {ingesting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Retrying...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-4 h-4" />
+                        Retry
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Documents table */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">All Documents</CardTitle>
-          <CardDescription>
-            Manage your uploaded documents and their processing status
-          </CardDescription>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+          <div>
+            <CardTitle className="text-base">All Documents</CardTitle>
+            <CardDescription>
+              Manage your uploaded documents and their processing status
+            </CardDescription>
+          </div>
+          <Button
+            onClick={handleIngest}
+            disabled={isLatestJobActive || ingesting || documents.length === 0}
+            className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white shadow-sm gap-2"
+            size="sm"
+          >
+            {ingesting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Starting...
+              </>
+            ) : isJobBlocking ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Ingesting...
+              </>
+            ) : (
+              <>
+                <Zap className="w-4 h-4" />
+                Ingest Documents
+              </>
+            )}
+          </Button>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -335,20 +614,11 @@ export default function DocumentsPage() {
                       {formatSize(doc.size)}
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={`text-xs ${
-                          doc.ingestionStatus === "completed"
-                            ? "border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10"
-                            : doc.ingestionStatus === "processing"
-                            ? "border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/10"
-                            : doc.ingestionStatus === "failed"
-                            ? "border-red-500/30 text-red-600 dark:text-red-400 bg-red-500/10"
-                            : "text-muted-foreground"
-                        }`}
-                      >
-                        {doc.ingestionStatus}
-                      </Badge>
+                      {latestJob ? (
+                        <JobStatusBadge status={latestJob.status} />
+                      ) : (
+                        <Badge variant="outline" className="text-xs text-muted-foreground">Not ingested</Badge>
+                      )}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {new Date(doc.createdAt).toLocaleDateString()}
@@ -374,9 +644,13 @@ export default function DocumentsPage() {
                               }
                               
                               setPreviewDoc({ doc, url: data.url });
-                            } catch (err: any) {
+                            } catch (err: unknown) {
                               console.error("Preview error:", err);
-                              toast.error(err.message || "Could not load document preview");
+                              const message =
+                                err instanceof Error
+                                  ? err.message
+                                  : "Could not load document preview";
+                              toast.error(message);
                             }
                           }}
                         >
@@ -386,6 +660,7 @@ export default function DocumentsPage() {
                           variant="ghost"
                           size="sm"
                           className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          disabled={isJobBlocking}
                           onClick={() => setDeleteTarget({ id: doc.id, name: doc.name })}
                         >
                           <Trash2 className="w-4 h-4" />
@@ -441,7 +716,7 @@ export default function DocumentsPage() {
                   Download to view.
                 </p>
                 <a
-                  href={previewDoc?.doc.fileUrl}
+                  href={previewDoc?.url ?? undefined}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"

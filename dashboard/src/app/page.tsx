@@ -1,26 +1,24 @@
 import { auth } from "@/auth";
-import { db } from "@/db";
-import { businesses } from "@/db/schema";
-import { eq } from "drizzle-orm";
-import { redirect } from "next/navigation";
+import { LandingPage } from "@/components/landing/landing-page";
 
+export const metadata = {
+  title: "Minerva — Conversations that Convert",
+  description:
+    "Minerva is a next-generation AI conversation engine designed to turn every customer interaction into a meaningful, high-conversion experience.",
+};
+
+/**
+ * Root page: always renders the public landing page.
+ * If the user is signed in, the navbar shows profile + Go to Dashboard.
+ * If not, it shows a Sign In button.
+ */
 export default async function HomePage() {
   const session = await auth();
+  const user = session?.user ?? null;
 
-  if (!session?.user?.id) {
-    redirect("/auth/signin");
-  }
-
-  // Check if user has any businesses
-  const userBusinesses = await db
-    .select()
-    .from(businesses)
-    .where(eq(businesses.ownerId, session.user.id));
-
-  if (userBusinesses.length === 0) {
-    redirect("/onboarding");
-  }
-
-  // Redirect to first business
-  redirect(`/dashboard/${userBusinesses[0].id}`);
+  return (
+    <LandingPage
+      user={user ? { name: user.name ?? null, email: user.email ?? null, image: user.image ?? null } : null}
+    />
+  );
 }

@@ -23,8 +23,9 @@ import {
 interface Business {
   id: string;
   name: string;
-  type: string;
-  status: string;
+  industry: string | null;
+  goal: string | null;
+  isActive: boolean;
 }
 
 interface BusinessSwitcherProps {

@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { documents, businesses } from "@/db/schema";
+import { businesses } from "@/db/schema";
+import { getBusinessSchema } from "@/db/business-schema";
 import { eq, and, sum } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
@@ -9,6 +10,22 @@ import { s3Client, S3_BUCKET } from "@/lib/s3";
 import { getPlanLimits } from "@/lib/plans";
 import type { PlanType } from "@/lib/plans";
 import { randomUUID } from "crypto";
+
+function getPublicFileUrl(fileKey: string) {
+  return `${process.env.S3_ENDPOINT}/${S3_BUCKET}/${fileKey}`;
+}
+
+function getStoragePath(fileKey: string) {
+  return `s3://${S3_BUCKET}/${fileKey}`;
+}
+
+function getS3KeyFromStoragePath(storagePath: string) {
+  const prefix = `s3://${S3_BUCKET}/`;
+  if (!storagePath.startsWith(prefix)) {
+    throw new Error(`Invalid storage path for bucket ${S3_BUCKET}: ${storagePath}`);
+  }
+  return storagePath.slice(prefix.length);
+}
 
 export async function GET(
   req: Request,
@@ -26,17 +43,15 @@ export async function GET(
     .select()
     .from(businesses)
     .where(
-      and(eq(businesses.id, businessId), eq(businesses.ownerId, session.user.id))
+      and(eq(businesses.id, businessId), eq(businesses.isActive, true))
     );
 
   if (!business) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const docs = await db
-    .select()
-    .from(documents)
-    .where(eq(documents.businessId, businessId));
+  const { documents } = getBusinessSchema(businessId);
+  const docs = await db.select().from(documents);
 
   return NextResponse.json(docs);
 }
@@ -72,10 +87,19 @@ export async function POST(
   const plan = ((session.user as any).plan as PlanType) || "trial";
   const limits = getPlanLimits(plan);
 
+  const [business] = await db
+    .select()
+    .from(businesses)
+    .where(and(eq(businesses.id, businessId), eq(businesses.isActive, true)));
+
+  if (!business) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const { documents } = getBusinessSchema(businessId);
   const [storageResult] = await db
     .select({ totalSize: sum(documents.size) })
-    .from(documents)
-    .where(eq(documents.businessId, businessId));
+    .from(documents);
 
   const currentStorage = Number(storageResult?.totalSize || 0);
   const maxBytes = limits.maxDocumentStorageMB * 1024 * 1024;
@@ -90,7 +114,7 @@ export async function POST(
   }
 
   // Generate S3 key and presigned URL (no DB entry yet)
-  const fileKey = `${businessId}/${randomUUID()}-${fileName}`;
+  const fileKey = `${business.orgId}/${businessId}/${randomUUID()}-${fileName}`;
 
   const command = new PutObjectCommand({
     Bucket: S3_BUCKET,
@@ -103,13 +127,10 @@ export async function POST(
     expiresIn: 3600,
   });
 
-  const fileUrl = `${process.env.S3_ENDPOINT}/${S3_BUCKET}/${fileKey}`;
-
   // Return presigned URL + metadata for the client to upload, then confirm
   return NextResponse.json({
     uploadUrl,
     fileKey,
-    fileUrl,
     fileName,
     fileSize,
     mimeType,
@@ -127,9 +148,9 @@ export async function PUT(
   }
 
   const { businessId } = await params;
-  const { fileKey, fileUrl, fileName, fileSize, mimeType } = await req.json();
+  const { fileKey, fileName, fileSize, mimeType } = await req.json();
 
-  if (!fileKey || !fileUrl || !fileName || !fileSize || !mimeType) {
+  if (!fileKey || !fileName || !fileSize || !mimeType) {
     return NextResponse.json(
       { error: "Missing required fields" },
       { status: 400 }
@@ -141,23 +162,24 @@ export async function PUT(
     .select()
     .from(businesses)
     .where(
-      and(eq(businesses.id, businessId), eq(businesses.ownerId, session.user.id))
+      and(eq(businesses.id, businessId), eq(businesses.isActive, true))
     );
 
   if (!business) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  const { documents } = getBusinessSchema(businessId);
+  const storagePath = getStoragePath(fileKey);
   const [doc] = await db
     .insert(documents)
     .values({
-      businessId,
-      name: fileName,
-      fileKey,
-      fileUrl,
+      filename: fileName,
+      fileType: mimeType,
+      storagePath,
+      fileUrl: getPublicFileUrl(fileKey),
       size: fileSize,
       mimeType,
-      ingestionStatus: "pending",
     })
     .returning();
 
@@ -185,12 +207,20 @@ export async function DELETE(
   }
 
   // Get document
+  const [business] = await db
+    .select()
+    .from(businesses)
+    .where(eq(businesses.id, businessId));
+
+  if (!business) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const { documents } = getBusinessSchema(businessId);
   const [doc] = await db
     .select()
     .from(documents)
-    .where(
-      and(eq(documents.id, documentId), eq(documents.businessId, businessId))
-    );
+    .where(eq(documents.id, documentId));
 
   if (!doc) {
     return NextResponse.json({ error: "Document not found" }, { status: 404 });
@@ -201,11 +231,10 @@ export async function DELETE(
     await s3Client.send(
       new DeleteObjectCommand({
         Bucket: S3_BUCKET,
-        Key: doc.fileKey,
+        Key: getS3KeyFromStoragePath(doc.storagePath),
       })
     );
   } catch {
-    // Continue even if S3 delete fails
     console.error("Failed to delete from S3");
   }
 

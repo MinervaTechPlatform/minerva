@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { apiKeys, businesses } from "@/db/schema";
+import { businesses, apiKeys } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { createHash, randomBytes } from "crypto";
@@ -29,7 +29,7 @@ export async function GET(
     .select()
     .from(businesses)
     .where(
-      and(eq(businesses.id, businessId), eq(businesses.ownerId, session.user.id))
+      and(eq(businesses.id, businessId), eq(businesses.isActive, true))
     );
 
   if (!business) {
@@ -41,7 +41,7 @@ export async function GET(
       id: apiKeys.id,
       name: apiKeys.name,
       keyPrefix: apiKeys.keyPrefix,
-      createdAt: apiKeys.createdAt,
+      createdOn: apiKeys.createdOn,
       lastUsed: apiKeys.lastUsed,
     })
     .from(apiKeys)
@@ -66,26 +66,32 @@ export async function POST(
     return NextResponse.json({ error: "Name is required" }, { status: 400 });
   }
 
+  const [business] = await db
+    .select()
+    .from(businesses)
+    .where(eq(businesses.id, businessId));
+
+  if (!business) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const rawKey = generateApiKey();
   const keyPrefix = rawKey.substring(0, 13) + "...";
-  const keyHash = hashKey(rawKey);
+  const apiSecretHash = hashKey(rawKey);
 
   const [key] = await db
     .insert(apiKeys)
     .values({
       businessId,
+      apiKey: rawKey,
       name,
       keyPrefix,
-      keyHash,
+      apiSecretHash,
     })
     .returning();
 
-  // Return the full key only once — it won't be retrievable later
   return NextResponse.json(
-    {
-      ...key,
-      key: rawKey,
-    },
+    { ...key, key: rawKey },
     { status: 201 }
   );
 }
@@ -108,6 +114,15 @@ export async function DELETE(
       { error: "Key ID is required" },
       { status: 400 }
     );
+  }
+
+  const [business] = await db
+    .select()
+    .from(businesses)
+    .where(eq(businesses.id, businessId));
+
+  if (!business) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   await db

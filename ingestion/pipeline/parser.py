@@ -46,11 +46,11 @@ def parse(file_path: str, file_type: str) -> str:
 
     logger.info(f"Parsing document: {file_path} (type={file_type})")
 
-    if file_type == "pdf":
+    if file_type in ["pdf", "application/pdf"]:
         text = _parse_pdf(file_path)
-    elif file_type == "txt":
+    elif file_type in ["txt", "text/plain"]:
         text = _parse_txt(file_path)
-    elif file_type == "docx":
+    elif file_type in ["docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]:
         text = _parse_docx(file_path)
     else:
         raise IngestionError("parse", f"Unsupported file type: '{file_type}'")

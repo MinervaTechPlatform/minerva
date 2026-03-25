@@ -1,1 +1,14 @@
 encryptionsalt: v1:iD+KtU2xrac=:v1:kxD0otFlH57sI+gN:Deuadl5lTaNEsyLqN+PmZGmJQKLHzw==
+config:
+  minerva:github_repo: https://github.com/GowthamPrakaash/minerva
+  minerva:github_token:
+    secure: v1:v4cdxicEIBUbF8PO:0G5MJZJ0xIDk40g6N8M+JYotg5MD5COIJGUA2Xh76FTJz03AU5e94i8xJqRPtNl2Zxx1APo/NH4=
+  minerva:auth_secret:
+    secure: v1:qkmTKTeqSDLifqP7:GYXrP8v8u4v2KgZAAo/BqskF29mcGk0JLl133NPr2rbZzbzqcXEuIroNFH05TUQ17yBD43aPJ1rtgGehFzLs1wQEERT+ajGl5C9P1Uz5Y5JApd17oMJt9hhaYLOO8CYpQ4GzDvQ=
+  minerva:auth_google_id:
+    secure: v1:2Pr3N8BDhV0uwqPQ:0tdgipc6722oSwFN5OnSffyZJx7VDmmdL6c74E469o1R6VdXMirumr2hPa9Qb9VvljTqC7jsv1VdIlBtGeipcEheWU/6eZTfC2GC1D2H6my01jHMpSuXhg==
+  minerva:auth_google_secret:
+    secure: v1:++0STIy12iUlrlMt:3X48ph/BZFK/FJijZKt9v+hh8EptZ5uEgFxP2yX9aCPggCETo0ehwBnqoW5lLUb/QbHS
+  minerva:deploy_core: "true"
+  minerva:deploy_dashboard: "true"
+  minerva:deploy_ingestion: "true"

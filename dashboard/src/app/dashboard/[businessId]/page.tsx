@@ -1,7 +1,8 @@
 import { auth } from "@/auth";
 import { db } from "@/db";
-import { businesses, documents } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { businesses } from "@/db/schema";
+import { getBusinessSchema } from "@/db/business-schema";
+import { eq, desc } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import {
   Card,
@@ -39,16 +40,20 @@ export default async function OverviewPage({
 
   if (!business) redirect("/");
 
-  const docs = await db
+  const t = getBusinessSchema(businessId);
+  const docs = await db.select().from(t.documents);
+
+  // Derive ingestion status from the latest ingestion job
+  const [latestJob] = await db
     .select()
-    .from(documents)
-    .where(eq(documents.businessId, businessId));
+    .from(t.ingestionJobs)
+    .orderBy(desc(t.ingestionJobs.createdOn))
+    .limit(1);
 
   const totalDocs = docs.length;
-  const activeDocs = docs.filter((d) => d.active).length;
-  const totalSize = docs.reduce((acc, d) => acc + d.size, 0);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const plan = ((session.user as any).plan as string) || "trial";
+  const activeDocs = docs.filter((d) => d.isActive).length;
+  const totalSize = docs.reduce((acc, d) => acc + (d.size ?? 0), 0);
+  const plan = business.isActive ? "active" : "trial"; // TODO: derive from org.plan once session carries orgId
 
   const stats = [
     {
@@ -101,20 +106,20 @@ export default async function OverviewPage({
         </h1>
         <div className="flex items-center gap-2 mt-1">
           <Badge variant="outline" className="text-xs capitalize">
-            {business.type.replace("_", " ")}
+            {business.industry?.replace("_", " ") ?? "—"}
           </Badge>
           <Badge variant="outline" className="text-xs capitalize">
-            {business.goal.replace("_", " ")}
+            {business.goal?.replace("_", " ") ?? "—"}
           </Badge>
           <Badge
             variant="outline"
             className={`text-xs ${
-              business.status === "active"
+              business.isActive
                 ? "border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10"
                 : "text-muted-foreground"
             }`}
           >
-            {business.status}
+            {business.isActive ? "active" : "inactive"}
           </Badge>
         </div>
       </div>
@@ -178,25 +183,25 @@ export default async function OverviewPage({
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-foreground truncate">
-                      {doc.name}
+                      {doc.filename}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {new Date(doc.createdAt).toLocaleDateString()}
+                      {doc.createdOn ? new Date(doc.createdOn).toLocaleDateString() : "—"}
                     </p>
                   </div>
                   <Badge
                     variant="outline"
                     className={`text-xs shrink-0 ${
-                      doc.ingestionStatus === "completed"
+                      latestJob?.status === "success"
                         ? "border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10"
-                        : doc.ingestionStatus === "processing"
+                        : latestJob?.status === "in_progress"
                         ? "border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/10"
-                        : doc.ingestionStatus === "failed"
+                        : latestJob?.status === "failed"
                         ? "border-red-500/30 text-red-600 dark:text-red-400 bg-red-500/10"
                         : "text-muted-foreground"
                     }`}
                   >
-                    {doc.ingestionStatus}
+                    {latestJob?.status ?? "pending"}
                   </Badge>
                 </div>
               ))
