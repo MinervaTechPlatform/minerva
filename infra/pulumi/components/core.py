@@ -115,28 +115,44 @@ class CoreService(pulumi.ComponentResource):
             execution_role_arn=base_infra.ecs_execution_role.arn,
             task_role_arn=self.task_role.arn,
             tags=self.tags,
-            container_definitions=pulumi.Output.format('''[
+            container_definitions=pulumi.Output.all(
+                repo_url=self.repo.repository_url,
+                db_url=base_infra.db_url,
+                log_group=self.log_group.name,
+                region=aws.get_region().name,
+                cluster_name=base_infra.cluster.name,
+                subnet_ids=base_infra.vpc.private_subnet_ids.apply(lambda ids: ",".join(ids)),
+                ingest_arn=ingestion_task_def_arn,
+                account_id=aws.get_caller_identity().account_id,
+                env=env
+            ).apply(lambda args: f'''[
                 {{
                     "name": "core",
-                    "image": "{0}",
+                    "image": "{args["repo_url"]}:latest",
                     "portMappings": [{{"containerPort": 8000, "hostPort": 8000}}],
                     "environment": [
-                        {{"name": "DATABASE_URL", "value": "{1}"}},
+                        {{"name": "DATABASE_URL", "value": "{args["db_url"]}"}},
                         {{"name": "ENV", "value": "production"}},
-                        {{"name": "ECS_CLUSTER_NAME", "value": "{4}"}},
-                        {{"name": "PRIVATE_SUBNET_IDS", "value": "{5}"}},
-                        {{"name": "INGESTION_TASK_DEF_ARN", "value": "{6}"}}
+                        {{"name": "ECS_CLUSTER_NAME", "value": "{args["cluster_name"]}"}},
+                        {{"name": "PRIVATE_SUBNET_IDS", "value": "{args["subnet_ids"]}"}},
+                        {{"name": "INGESTION_TASK_DEF_ARN", "value": "{args["ingest_arn"]}"}}
+                    ],
+                    "secrets": [
+                        {{
+                            "name": "SARVAM_API_KEY",
+                            "valueFrom": "arn:aws:ssm:{args["region"]}:{args["account_id"]}:parameter/minerva/{args["env"]}/SARVAM_API_KEY"
+                        }}
                     ],
                     "logConfiguration": {{
                          "logDriver": "awslogs",
                          "options": {{
-                            "awslogs-group": "{2}",
-                            "awslogs-region": "{3}",
+                            "awslogs-group": "{args["log_group"]}",
+                            "awslogs-region": "{args["region"]}",
                             "awslogs-stream-prefix": "ecs"
                          }}
                     }}
                 }}
-            ]''', self.repo.repository_url, base_infra.db_url, self.log_group.name, aws.get_region().name, base_infra.cluster.name, base_infra.vpc.private_subnet_ids.apply(lambda ids: ",".join(ids)), ingestion_task_def_arn),
+            ]'''),
             opts=pulumi.ResourceOptions(parent=self)
         )
 

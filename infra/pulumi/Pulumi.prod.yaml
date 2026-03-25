@@ -1,0 +1,5 @@
+config:
+  minerva:environment: prod
+  minerva:deploy_core: "true"
+  minerva:deploy_ingestion: "true"
+  minerva:deploy_dashboard: "false"

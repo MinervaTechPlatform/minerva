@@ -63,6 +63,7 @@ class IngestionWorker(pulumi.ComponentResource):
                 db_host=base_infra.db.address,
                 db_password=base_infra.db_password.result,
                 log_group=self.log_group.name,
+                account_id=aws.get_caller_identity().account_id,
             ).apply(lambda args: f'''[
                 {{
                     "name": "ingestion",
@@ -78,6 +79,12 @@ class IngestionWorker(pulumi.ComponentResource):
                         {{"name": "DB_NAME", "value": "minerva"}},
                         {{"name": "DB_USER", "value": "postgres"}},
                         {{"name": "DB_PASSWORD", "value": "{args["db_password"]}"}}
+                    ],
+                    "secrets": [
+                        {{
+                            "name": "SARVAM_API_KEY",
+                            "valueFrom": "arn:aws:ssm:{region}:{args["account_id"]}:parameter/minerva/{env}/SARVAM_API_KEY"
+                        }}
                     ],
                     "logConfiguration": {{
                         "logDriver": "awslogs",

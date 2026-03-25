@@ -22,7 +22,10 @@ dist/
 .idea/
 logs/
 *.log
-Orchis-theme/
 
 # Temporary test scripts
 tmp/
+
+# SOPS unencrypted env files
+.env.dev
+.env.prod

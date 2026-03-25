@@ -1,0 +1,88 @@
+name: Core Service Deployment
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'core/**'
+      - 'shared/**'
+      - '.github/workflows/core.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: 🧪 Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install -r core/requirements.txt
+          pip install pytest pytest-asyncio httpx
+      - name: Run tests
+        env:
+          PYTHONPATH: .
+          AUTH_DISABLED: "true"
+          STORAGE_TYPE: local
+          LOCAL_STORAGE_PATH: /tmp/data/
+        run: pytest tests/core/ tests/shared/ -v --tb=short
+
+  build-and-deploy:
+    name: 🐳 Build & Deploy Core
+    needs: test
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+    env:
+      AWS_REGION: us-east-1
+      PULUMI_STACK: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Install Pulumi CLI
+        uses: pulumi/actions@v6
+        with:
+          command: version
+
+      - name: Get Repo URL and Cluster Name
+        id: pulumi-outputs
+        working-directory: infra/pulumi
+        env:
+          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+        run: |
+          pip install -r requirements.txt
+          pulumi login s3://minerva-infra-state
+          echo "core_repo=$(pulumi stack output core_repo_url --stack ${{ env.PULUMI_STACK }})" >> "$GITHUB_OUTPUT"
+          echo "cluster=$(pulumi stack output ecs_cluster_name --stack ${{ env.PULUMI_STACK }})" >> "$GITHUB_OUTPUT"
+
+      - name: Build & Push
+        run: |
+          REPO=${{ steps.pulumi-outputs.outputs.core_repo }}
+          SHA_TAG=${GITHUB_SHA::8}
+          docker build -t ${REPO}:${SHA_TAG} -t ${REPO}:latest -f infra/docker/Dockerfile.core .
+          docker push ${REPO}:${SHA_TAG}
+          docker push ${REPO}:latest
+
+      - name: Force ECS Redeploy
+        run: |
+          CLUSTER=${{ steps.pulumi-outputs.outputs.cluster }}
+          SERVICE=$(aws ecs list-services --cluster "$CLUSTER" --query "serviceArns[?contains(@, 'core')]" --output text | head -1)
+          if [ -n "$SERVICE" ]; then
+            aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --force-new-deployment --no-cli-pager
+          fi
