@@ -56,11 +56,6 @@ jobs:
             echo "File $ENC_FILE not found, nothing to sync."
           fi
 
-      - name: Install Pulumi CLI
-        uses: pulumi/actions@v6
-        with:
-          command: version
-
       - name: Force ECS Redeploy (Core)
         working-directory: infra/pulumi
         env:
