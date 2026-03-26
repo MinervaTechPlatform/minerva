@@ -104,7 +104,7 @@ class CoreService(pulumi.ComponentResource):
             opts=pulumi.ResourceOptions(parent=self)
         )
 
-        # 4. ECS Service (1 vCPU, 1 GB RAM, as requested)
+        # 4. ECS Service (0.5 vCPU, 1 GB RAM, as requested)
         self.task_def = aws.ecs.TaskDefinition(
             f"{name}-task",
             family=f"{name}",
@@ -170,7 +170,8 @@ class CoreService(pulumi.ComponentResource):
             },
             network_configuration={
                 "subnets": base_infra.vpc.private_subnet_ids,
-                "security_groups": [base_infra.db_sg.id] # Reuse SG for internal traffic
+                "security_groups": [base_infra.db_sg.id], # Reuse SG for internal traffic
+                 "assign_public_ip": True 
             },
             tags=self.tags,
             load_balancers=[{
