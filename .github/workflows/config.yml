@@ -68,6 +68,8 @@ jobs:
           if [ -n "$SERVICE" ]; then
             echo "Forcing redeployment of core service to pick up new secrets..."
             aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --force-new-deployment --no-cli-pager
+            echo "Waiting for service to become stable..."
+            aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
           else
             echo "⚠️ No core service found in cluster $CLUSTER"
           fi

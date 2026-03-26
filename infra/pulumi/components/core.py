@@ -171,7 +171,7 @@ class CoreService(pulumi.ComponentResource):
             network_configuration={
                 "subnets": base_infra.vpc.private_subnet_ids,
                 "security_groups": [base_infra.db_sg.id], # Reuse SG for internal traffic
-                 "assign_public_ip": True 
+                 "assign_public_ip": False 
             },
             tags=self.tags,
             load_balancers=[{
