@@ -137,12 +137,6 @@ class CoreService(pulumi.ComponentResource):
                         {{"name": "PRIVATE_SUBNET_IDS", "value": "{args["subnet_ids"]}"}},
                         {{"name": "INGESTION_TASK_DEF_ARN", "value": "{args["ingest_arn"]}"}}
                     ],
-                    "secrets": [
-                        {{
-                            "name": "SARVAM_API_KEY",
-                            "valueFrom": "arn:aws:ssm:{args["region"]}:{args["account_id"]}:parameter/minerva/{args["env"]}/SARVAM_API_KEY"
-                        }}
-                    ],
                     "logConfiguration": {{
                          "logDriver": "awslogs",
                          "options": {{

@@ -80,12 +80,6 @@ class IngestionWorker(pulumi.ComponentResource):
                         {{"name": "DB_USER", "value": "postgres"}},
                         {{"name": "DB_PASSWORD", "value": "{args["db_password"]}"}}
                     ],
-                    "secrets": [
-                        {{
-                            "name": "SARVAM_API_KEY",
-                            "valueFrom": "arn:aws:ssm:{region}:{args["account_id"]}:parameter/minerva/{env}/SARVAM_API_KEY"
-                        }}
-                    ],
                     "logConfiguration": {{
                         "logDriver": "awslogs",
                         "options": {{
