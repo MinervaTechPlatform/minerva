@@ -53,10 +53,8 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Install Pulumi CLI
-        uses: pulumi/actions@v6
-        with:
-          command: version
+      - name: Setup Pulumi
+        uses: pulumi/setup-pulumi@v2
 
       - name: Pulumi Deploy
         working-directory: infra/pulumi

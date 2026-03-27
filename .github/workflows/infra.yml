@@ -32,10 +32,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Pulumi CLI
-        uses: pulumi/actions@v6
-        with:
-          command: version
+      - name: Setup Pulumi
+        uses: pulumi/setup-pulumi@v2
 
       - name: Pulumi Up
         working-directory: infra/pulumi
