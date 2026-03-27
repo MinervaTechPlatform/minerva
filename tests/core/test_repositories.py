@@ -33,7 +33,7 @@ async def test_session_repo_create(mock_get_conn):
     }
     
     repo = SessionRepository("tenant_test")
-    session = await repo.create(biz_id, "web", "user1")
+    session = await repo.create("web", "user1")
     
     assert session.id == session_id
     mock_conn.fetchrow.assert_called()

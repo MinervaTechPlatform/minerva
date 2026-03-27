@@ -42,7 +42,7 @@ async def test_process_job_success(
     mock_get_storage, mock_repo_cls, 
     mock_repo, mock_storage, monkeypatch
 ):
-    monkeypatch.setenv("TENANT_SCHEMA", "tenant_test")
+    monkeypatch.setenv("BUSINESS_SCHEMA", "tenant_test")
     
     # Setup mocks
     mock_repo_cls.return_value = mock_repo

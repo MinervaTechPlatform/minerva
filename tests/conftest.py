@@ -26,7 +26,7 @@ def set_env_defaults(monkeypatch):
         "DB_PASSWORD": "test_password",
         "S3_BUCKET": "minerva-test-bucket",
         "AWS_REGION": "ap-south-1",
-        "TENANT_SCHEMA": "tenant_acme_sales",
+        "BUSINESS_SCHEMA": "tenant_acme_sales",
         "INGESTION_JOB_ID": str(uuid.uuid4()),
         "EMBEDDING_MODEL": "all-MiniLM-L6-v2",
         "ENV": "test",
