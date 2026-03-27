@@ -81,7 +81,7 @@ class CoreService(pulumi.ComponentResource):
             vpc_id=base_infra.vpc.vpc_id,
             target_type="ip",
             health_check={
-                "path": "/health",
+                "path": "/internal/health",
                 "healthy_threshold": 2,
                 "unhealthy_threshold": 10,
                 "timeout": 5,
@@ -133,7 +133,7 @@ class CoreService(pulumi.ComponentResource):
                     "portMappings": [{{"containerPort": 8000, "hostPort": 8000}}],
                     "environment": [
                         {{"name": "DATABASE_URL", "value": "{args["db_url"]}"}},
-                        {{"name": "ENV", "value": "production"}},
+                        {{"name": "ENV", "value": "{args["env"]}"}},
                         {{"name": "ECS_CLUSTER_NAME", "value": "{args["cluster_name"]}"}},
                         {{"name": "PRIVATE_SUBNET_IDS", "value": "{args["subnet_ids"]}"}},
                         {{"name": "INGESTION_TASK_DEF_ARN", "value": "{args["ingest_arn"]}"}},
