@@ -104,6 +104,35 @@ class CoreService(pulumi.ComponentResource):
             opts=pulumi.ResourceOptions(parent=self)
         )
 
+        # 4. Security Group for Core ECS Tasks
+        self.core_sg = aws.ec2.SecurityGroup(
+            f"{name}-ecs-sg",
+            vpc_id=base_infra.vpc.vpc_id,
+            description="Security group for Core ECS tasks",
+            ingress=[{
+                "protocol": "tcp",
+                "from_port": 8000,
+                "to_port": 8000,
+                "security_groups": [self.alb_sg.id]
+            }],
+            egress=[{"protocol": "-1", "from_port": 0, "to_port": 0, "cidr_blocks": ["0.0.0.0/0"]}],
+            tags=self.tags,
+            opts=pulumi.ResourceOptions(parent=self)
+        )
+
+        # Allow Core to connect to DB
+        aws.ec2.SecurityGroupRule(
+            f"{name}-db-access",
+            type="ingress",
+            protocol="tcp",
+            from_port=5432,
+            to_port=5432,
+            security_group_id=base_infra.db_sg.id,
+            source_security_group_id=self.core_sg.id,
+            description="Allow Core ECS tasks to connect to Postgres",
+            opts=pulumi.ResourceOptions(parent=self)
+        )
+
         # 4. ECS Service (0.5 vCPU, 1 GB RAM, as requested)
         self.task_def = aws.ecs.TaskDefinition(
             f"{name}-task",
@@ -166,7 +195,7 @@ class CoreService(pulumi.ComponentResource):
             },
             network_configuration={
                 "subnets": base_infra.vpc.private_subnet_ids,
-                "security_groups": [base_infra.db_sg.id], # Reuse SG for internal traffic
+                "security_groups": [self.core_sg.id], # Use dedicated Core SG
                  "assign_public_ip": False 
             },
             tags=self.tags,
