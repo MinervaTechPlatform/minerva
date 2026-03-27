@@ -7,6 +7,7 @@ on:
       - 'core/**'
       - 'shared/**'
       - 'tests/**'
+      - 'infra/pulumi/**'
       - '.github/workflows/core.yml'
 
 permissions:
