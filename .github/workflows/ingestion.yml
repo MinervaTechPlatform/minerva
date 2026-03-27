@@ -58,20 +58,20 @@ jobs:
         with:
           command: version
 
-      - name: Get Repo URL
-        id: pulumi-outputs
+      - name: Pulumi Deploy
         working-directory: infra/pulumi
         env:
           PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
         run: |
           pip install -r requirements.txt
           pulumi login s3://minerva-infra-state
-          echo "ingestion_repo=$(pulumi stack output ingestion_repo_url --stack ${{ env.PULUMI_STACK }})" >> "$GITHUB_OUTPUT"
+          
+          # Inject secrets from GitHub
+          pulumi config set sarvam_api_key "${{ secrets.SARVAM_API_KEY }}" --secret --stack ${{ env.PULUMI_STACK }}
+          pulumi config set auth_secret "${{ secrets.AUTH_SECRET }}" --secret --stack ${{ env.PULUMI_STACK }}
+          pulumi config set auth_google_id "${{ secrets.AUTH_GOOGLE_ID }}" --secret --stack ${{ env.PULUMI_STACK }}
+          pulumi config set auth_google_secret "${{ secrets.AUTH_GOOGLE_SECRET }}" --secret --stack ${{ env.PULUMI_STACK }}
+          
+          # Deploy updated task definition (also handles worker updates)
+          pulumi up --yes --stack ${{ env.PULUMI_STACK }}
 
-      - name: Build & Push
-        run: |
-          REPO=${{ steps.pulumi-outputs.outputs.ingestion_repo }}
-          SHA_TAG=${GITHUB_SHA::8}
-          docker build -t ${REPO}:${SHA_TAG} -t ${REPO}:latest -f infra/docker/Dockerfile.ingestion .
-          docker push ${REPO}:${SHA_TAG}
-          docker push ${REPO}:latest

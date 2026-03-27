@@ -1,25 +1,23 @@
-name: Config (SOPS) Sync
+name: Config Sync (GitHub Secrets to ECS)
 
 on:
+  workflow_dispatch:
   push:
     branches: [main, develop]
     paths:
-      - '.env.*.enc'
-      - 'scripts/sync_env_to_ssm.py'
       - '.github/workflows/config.yml'
 
 permissions:
   contents: read
 
 jobs:
-  sync-and-redeploy:
-    name: 🔐 Sync Secrets & Redeploy
+  update-secrets:
+    name: 🚀 Push Secrets to ECS
     runs-on: ubuntu-latest
     environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
     env:
       AWS_REGION: us-east-1
       PULUMI_STACK: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
-      TARGET_ENV: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -30,46 +28,30 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup SOPS
-        uses: mdgreenwald/mozilla-sops-action@v1.6.0
-        with:
-          version: 'latest'
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        run: pip install boto3
+      - name: Install Pulumi CLI
+        uses: pulumi/actions@v6
+        with:
+          command: version
 
-      - name: Decrypt and Sync to SSM
-        run: |
-          ENC_FILE=".env.${TARGET_ENV}.enc"
-          if [ -f "$ENC_FILE" ]; then
-            echo "Decrypting $ENC_FILE..."
-            sops -d "$ENC_FILE" > decrypted.env
-            echo "Syncing to parameter store..."
-            python scripts/sync_env_to_ssm.py decrypted.env $TARGET_ENV
-            rm decrypted.env
-          else
-            echo "File $ENC_FILE not found, nothing to sync."
-          fi
-
-      - name: Force ECS Redeploy (Core)
+      - name: Pulumi Config and Up
         working-directory: infra/pulumi
         env:
           PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
         run: |
           pip install -r requirements.txt
           pulumi login s3://minerva-infra-state
-          CLUSTER=$(pulumi stack output ecs_cluster_name --stack ${{ env.PULUMI_STACK }})
-          SERVICE=$(aws ecs list-services --cluster "$CLUSTER" --query "serviceArns[?contains(@, 'core')]" --output text | head -1)
-          if [ -n "$SERVICE" ]; then
-            echo "Forcing redeployment of core service to pick up new secrets..."
-            aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --force-new-deployment --no-cli-pager
-            echo "Waiting for service to become stable..."
-            aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
-          else
-            echo "⚠️ No core service found in cluster $CLUSTER"
-          fi
+          
+          # Inject secrets from GitHub directly into Pulumi Config
+          pulumi config set sarvam_api_key "${{ secrets.SARVAM_API_KEY }}" --secret --stack ${{ env.PULUMI_STACK }}
+          pulumi config set auth_secret "${{ secrets.AUTH_SECRET }}" --secret --stack ${{ env.PULUMI_STACK }}
+          pulumi config set auth_google_id "${{ secrets.AUTH_GOOGLE_ID }}" --secret --stack ${{ env.PULUMI_STACK }}
+          pulumi config set auth_google_secret "${{ secrets.AUTH_GOOGLE_SECRET }}" --secret --stack ${{ env.PULUMI_STACK }}
+          
+          # Run Pulumi update to push to ECS Task Definitions
+          pulumi up --yes --stack ${{ env.PULUMI_STACK }}
+

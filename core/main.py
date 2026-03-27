@@ -13,9 +13,6 @@ from dotenv import load_dotenv
 # Load environment variables from .env file at the project root
 load_dotenv()
 
-from shared.config import get_config
-get_config()
-
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

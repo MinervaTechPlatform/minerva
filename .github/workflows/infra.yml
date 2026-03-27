@@ -44,4 +44,11 @@ jobs:
         run: |
           pip install -r requirements.txt
           pulumi login s3://minerva-infra-state
+          
+          # Ensure secrets are synced even during infra-only runs
+          pulumi config set sarvam_api_key "${{ secrets.SARVAM_API_KEY }}" --secret --stack ${{ env.PULUMI_STACK }}
+          pulumi config set auth_secret "${{ secrets.AUTH_SECRET }}" --secret --stack ${{ env.PULUMI_STACK }}
+          pulumi config set auth_google_id "${{ secrets.AUTH_GOOGLE_ID }}" --secret --stack ${{ env.PULUMI_STACK }}
+          pulumi config set auth_google_secret "${{ secrets.AUTH_GOOGLE_SECRET }}" --secret --stack ${{ env.PULUMI_STACK }}
+          
           pulumi up --yes --stack ${{ env.PULUMI_STACK }}

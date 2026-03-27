@@ -124,7 +124,8 @@ class CoreService(pulumi.ComponentResource):
                 subnet_ids=base_infra.vpc.private_subnet_ids.apply(lambda ids: ",".join(ids)),
                 ingest_arn=ingestion_task_def_arn,
                 account_id=aws.get_caller_identity().account_id,
-                env=env
+                env=env,
+                sarvam_api_key=pulumi.Config().get_secret("sarvam_api_key") or ""
             ).apply(lambda args: f'''[
                 {{
                     "name": "core",
@@ -135,7 +136,8 @@ class CoreService(pulumi.ComponentResource):
                         {{"name": "ENV", "value": "production"}},
                         {{"name": "ECS_CLUSTER_NAME", "value": "{args["cluster_name"]}"}},
                         {{"name": "PRIVATE_SUBNET_IDS", "value": "{args["subnet_ids"]}"}},
-                        {{"name": "INGESTION_TASK_DEF_ARN", "value": "{args["ingest_arn"]}"}}
+                        {{"name": "INGESTION_TASK_DEF_ARN", "value": "{args["ingest_arn"]}"}},
+                        {{"name": "SARVAM_API_KEY", "value": "{args["sarvam_api_key"]}"}}
                     ],
                     "logConfiguration": {{
                          "logDriver": "awslogs",

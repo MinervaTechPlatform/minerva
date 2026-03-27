@@ -12,9 +12,6 @@ from dotenv import load_dotenv
 # Load environment variables from .env file at the project root
 load_dotenv()
 
-from shared.config import get_config
-get_config()
-
 from shared.db.connection import DBConnectionPool
 from shared.utils.logging import get_logger
 
