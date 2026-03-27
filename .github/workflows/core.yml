@@ -6,6 +6,7 @@ on:
     paths:
       - 'core/**'
       - 'shared/**'
+      - 'tests/**'
       - '.github/workflows/core.yml'
 
 permissions:

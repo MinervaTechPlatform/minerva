@@ -6,6 +6,7 @@ on:
     paths:
       - 'ingestion/**'
       - 'shared/**'
+      - 'tests/**'
       - '.github/workflows/ingestion.yml'
 
 permissions:
