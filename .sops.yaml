@@ -1,3 +1,0 @@
-creation_rules:
-  - path_regex: \.env\.(dev|prod)$
-    kms: arn:aws:kms:us-east-1:335014104140:key/08effa43-8dfe-4458-acbc-791f53adaa68
