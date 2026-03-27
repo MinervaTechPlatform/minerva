@@ -54,13 +54,17 @@ class DBConnectionPool:
                 extra={"min_size": min_size, "max_size": max_size},
             )
 
-            self._pool = await asyncpg.create_pool(
-                dsn=dsn,
-                min_size=min_size,
-                max_size=max_size,
-                command_timeout=30,
-            )
-            logger.info("Database connection pool ready.")
+            try:
+                self._pool = await asyncpg.create_pool(
+                    dsn=dsn,
+                    min_size=min_size,
+                    max_size=max_size,
+                    command_timeout=30,
+                )
+                logger.info("Database connection pool ready.")
+            except Exception as e:
+                logger.error(f"Failed to create database pool: {e}")
+                raise
 
     async def get_pool(self) -> asyncpg.Pool:
         if self._pool is None:
@@ -79,6 +83,11 @@ class DBConnectionPool:
 
     def _build_dsn(self) -> str:
         """Construct the PostgreSQL DSN from environment variables."""
+        # Preference 1: DATABASE_URL
+        if "DATABASE_URL" in os.environ:
+            return os.environ["DATABASE_URL"]
+
+        # Preference 2: Individual variables
         try:
             host = os.environ["DB_HOST"]
             port = os.getenv("DB_PORT", "5432")
