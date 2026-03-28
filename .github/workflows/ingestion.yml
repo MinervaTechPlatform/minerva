@@ -10,6 +10,14 @@ on:
       - 'infra/pulumi/**'
       - '.github/workflows/ingestion.yml'
 
+  workflow_dispatch:
+    inputs:
+      deploy_docker:
+        description: 'Build and Push Docker Image as well?'
+        required: true
+        default: false
+        type: boolean
+
 permissions:
   contents: read
 
@@ -57,6 +65,25 @@ jobs:
 
       - name: Setup Pulumi
         uses: pulumi/setup-pulumi@v2
+
+      - name: Get Repo URL
+        id: pulumi-outputs
+        working-directory: infra/pulumi
+        env:
+          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+        run: |
+          pip install -r requirements.txt
+          pulumi login s3://minerva-infra-state
+          echo "ingestion_repo=$(pulumi stack output ingestion_repo_url --stack ${{ env.PULUMI_STACK }})" >> "$GITHUB_OUTPUT"
+
+      - name: Build & Push
+        if: github.event_name == 'push' || inputs.deploy_docker == true
+        run: |
+          REPO=${{ steps.pulumi-outputs.outputs.ingestion_repo }}
+          SHA_TAG=${GITHUB_SHA::8}
+          docker build -t ${REPO}:${SHA_TAG} -t ${REPO}:latest -f infra/docker/Dockerfile.ingestion .
+          docker push ${REPO}:${SHA_TAG}
+          docker push ${REPO}:latest
 
       - name: Pulumi Deploy
         working-directory: infra/pulumi
