@@ -21,6 +21,7 @@ from core.services import session_service, message_service, usage_service
 from shared.config.config_cache import ConfigCache
 from shared.providers.provider_resolver import ProviderResolver
 from shared.utils.logging import get_logger
+from shared.utils.text_utils import strip_thought_blocks
 
 logger = get_logger("core.api.sessions")
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
@@ -234,10 +235,6 @@ async def process_message_stream(
                 context=context_text,
                 question=context.transcript_en,
             )
-            sys_prompt += (
-                f"\n\nIMPORTANT: If the user's question is clearly unrelated to {industry} "
-                "and cannot be addressed with the provided context, output exactly: OUT_OF_SCOPE"
-            )
             user_prompt = f"Question: {context.transcript_en}"
 
             full_response = []
@@ -246,16 +243,9 @@ async def process_message_stream(
                     full_response.append(delta)
                     yield f"data: {json.dumps({'delta': delta})}\n\n"
 
-            raw_response = "".join(full_response)
+            raw_response = strip_thought_blocks("".join(full_response))
 
             # Post-process signals
-            if "OUT_OF_SCOPE" in raw_response:
-                raw_response = (
-                    f"I am sorry, I can only assist with inquiries related to {industry}. "
-                    "Can I help you with any more questions on this topic?"
-                )
-                context.is_industry_specific = False
-
             if "[COMPLETE]" in raw_response:
                 context.is_complete = True
                 raw_response = raw_response.replace("[COMPLETE]", "").strip()
@@ -270,6 +260,7 @@ async def process_message_stream(
 
             context.llm_response_en = raw_response
             context.llm_tokens = len(sys_prompt.split()) + len(raw_response.split())
+
 
         # Run post-LLM stages (TranslationOut, TTS)
         from core.pipelines.pipeline_runner import PipelineRunner as _Runner

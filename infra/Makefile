@@ -45,6 +45,7 @@ help:
 	@echo "  make preview-dashboard   - Preview dashboard (ECS Fargate) only"
 	@echo "  make deploy-dashboard    - Deploy dashboard (ECS Fargate) only"
 	@echo "  make push-dashboard      - Build+push dashboard image & force ECS redeploy (no Pulumi)"
+	@echo "  make push-core           - Build+push core image & force ECS redeploy (no Pulumi)"
 	@echo "  make preview-core        - Preview core API only"
 	@echo "  make deploy-core         - Deploy core API only"
 	@echo "  make preview-ingestion   - Preview ingestion worker only"
@@ -151,16 +152,33 @@ nuke-stack:
 
 .PHONY: push-core
 push-core: login
-	@echo "Pushing Core Service to ECR..."
+	@echo "Pushing Core Service to ECR and force-redeploying ECS..."
 	$(eval CORE_REPO := $(shell cd pulumi && $(DEPLOY_ENV) pulumi stack output core_repo_url --stack $(STACK) 2>/dev/null))
 	@if [ -z "$(CORE_REPO)" ]; then \
 		echo "Error: core_repo_url not found in stack outputs. Have you run 'make deploy' yet?"; \
 		exit 1; \
 	fi
 	@$(DEPLOY_ENV) aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(CORE_REPO) || \
-		(echo "Error: AWS ECR login failed. Ensure your IAM user has 'ecr:GetAuthorizationToken' permissions."; exit 1)
+		(echo "Error: AWS ECR login failed."; exit 1)
 	docker build --platform linux/amd64 -t $(CORE_REPO):latest -f docker/Dockerfile.core ..
 	docker push $(CORE_REPO):latest
+	$(eval CLUSTER := $(shell $(DEPLOY_ENV) aws ecs list-clusters --region $(AWS_REGION) --query 'clusterArns[?contains(@, `minerva-$(STACK)`)] | [0]' --output text 2>/dev/null))
+	$(eval SERVICE := $(shell $(DEPLOY_ENV) aws ecs list-services --cluster $(CLUSTER) --region $(AWS_REGION) --query 'serviceArns[?contains(@, `core`)] | [0]' --output text 2>/dev/null))
+	@if [ -z "$(SERVICE)" ]; then \
+		echo "Error: Could not find core ECS service. Have you run 'make deploy-core' yet?"; \
+		exit 1; \
+	fi
+	@echo "Force-redeploying ECS service: $(SERVICE)"
+	@$(DEPLOY_ENV) aws ecs update-service \
+		--cluster $(CLUSTER) \
+		--service $(SERVICE) \
+		--force-new-deployment \
+		--region $(AWS_REGION) \
+		--no-cli-pager \
+		--query 'service.{status:status,desiredCount:desiredCount,runningCount:runningCount}' \
+		--output table
+	@echo "Core deploy triggered. Monitor progress: aws ecs describe-services --cluster $(CLUSTER) --services $(SERVICE) --region $(AWS_REGION)"
+	
 
 .PHONY: push-ingestion
 push-ingestion: login

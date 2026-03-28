@@ -2,20 +2,18 @@
 core/pipelines/components/rag_component.py — RAG retrieval component.
 
 Purpose:
-    1. Embedding Generation: Embed the query using SentenceTransformers.
-    2. Similarity Search: Retrieve top-k chunks from FAISS index.
-    3. Heuristics: Determine if information is available for grounding.
-
-Note:
-    Scope classification (industry-specific vs. generic) was previously a
-    separate LLM call here. It is now handled natively by the LLMComponent
-    via an OUT_OF_SCOPE signal in its system prompt, saving one LLM roundtrip.
+    1. Scope Classification: Is the query industry-specific? (LLM call, runs
+       concurrently with memory and goal_steering — no sequential penalty).
+    2. Embedding Generation: Embed the query using SentenceTransformers.
+    3. Similarity Search: Retrieve top-k chunks from FAISS index.
+    4. Heuristics: Determine if information is available for grounding.
 """
 
 import os
 import numpy as np
 from typing import Any
 
+from shared.providers.provider_resolver import ProviderResolver
 from shared.utils.logging import get_logger
 from ingestion.pipeline.embedder import embed
 from .vector_manager import get_index
@@ -25,13 +23,14 @@ logger = get_logger("core.pipelines.components.rag")
 
 # Prompt paths
 _BASE_PATH = os.path.join(os.path.dirname(__file__), "../../../shared/prompts/")
+_SCOPE_PROMPT_PATH = os.path.join(_BASE_PATH, "scope_classifier.txt")
 _RAG_CHUNK_PATH = os.path.join(_BASE_PATH, "rag_chunk.txt")
 
 UNKNOWN_THRESHOLD = 0.15
 
 
 class RAGComponent:
-    """Handles grounded document retrieval."""
+    """Handles domain classification and grounded document retrieval."""
 
     @property
     def name(self) -> str:
@@ -45,7 +44,11 @@ class RAGComponent:
         if not context.transcript_en:
             return
 
-        # Retrieval (Load index for this business)
+        # 1. Scope Classification (runs concurrently with memory + goal_steering,
+        #    so no extra wall-clock cost compared to the old sequential pipeline)
+        await self._classify_scope(context)
+
+        # 2. Retrieval (Load index for this business)
         try:
             index, metadata = await get_index(str(context.business_id))
         except Exception as exc:
@@ -53,12 +56,11 @@ class RAGComponent:
             context.info_available = False
             return
 
-        # Embed Query
+        # 3. Embed Query
         with context.tracker.measure("RAG:Embed"):
-            # Reuse embedder from ingestion (it has the same singleton model logic)
             query_vec = embed([context.transcript_en])[0].reshape(1, -1)
 
-        # Search
+        # 4. Search
         with context.tracker.measure("RAG:Search"):
             top_k = 3
             scores, indices = index.search(query_vec, min(top_k, index.ntotal))
@@ -77,19 +79,38 @@ class RAGComponent:
             
             context.retrieved_chunks = results
 
-        # Determine Info Availability (Heuristic from POC)
-        # Info is available if:
-        # - We have chunks with decent scores
-        # - OR it's a short continuation turn (Yes/No/OK)
-        # - OR we're deep in the conversation
-        
+        # 5. Determine Info Availability
         best_score = results[0]["score"] if results else 0.0
         word_count = len(context.transcript_en.split())
         
-        # Simple continuation check
         is_short = word_count <= 8
         is_continuation = any(w in context.transcript_en.lower() for w in ["yes", "no", "ok", "sure", "thanks", "done"])
         
         context.info_available = (best_score > UNKNOWN_THRESHOLD) or (is_short and is_continuation)
         
-        logger.info(f"RAG: InfoAvail={context.info_available}, BestScore={best_score:.3f}")
+        logger.info(f"RAG: Scope={context.is_industry_specific}, InfoAvail={context.info_available}, BestScore={best_score:.3f}")
+
+    async def _classify_scope(self, context: PipelineContext) -> None:
+        """Use LLM to check if the query is industry specific."""
+        with open(_SCOPE_PROMPT_PATH, "r") as f:
+            template = f.read()
+        
+        industry = context.client_config.get("industry", "Business")
+        
+        prompt = template.format(
+            industry=industry,
+            query=context.transcript_en,
+            summary=context.history_summary or "New session."
+        )
+
+        resolver = ProviderResolver.get_instance()
+        llm = resolver.get_provider("llm", context.business_id)
+        
+        with context.tracker.measure("RAG:Classify"):
+            choice = await llm.chat_completion(
+                "You are a precise scope classifier. Output ONLY 'INDUSTRY_SPECIFIC' or 'GENERAL'. Do not think or explain.",
+                prompt,
+                max_tokens=10
+            )
+        
+        context.is_industry_specific = "INDUSTRY_SPECIFIC" in choice.upper()
