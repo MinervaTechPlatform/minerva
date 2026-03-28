@@ -4,10 +4,6 @@ config:
   minerva:github_token:
     secure: v1:v4cdxicEIBUbF8PO:0G5MJZJ0xIDk40g6N8M+JYotg5MD5COIJGUA2Xh76FTJz03AU5e94i8xJqRPtNl2Zxx1APo/NH4=
   minerva:auth_secret:
-    secure: v1:tjWOHeGQLHBsV8JD:0jwEkxly0RQFRq9f6P2P+qSDmdVn/A3+bjCrpNdExBHJfT+JIbYNq6K+KwleNqXA3OHMTswlHuVrbgCKIvqzQKjyGE8EArLCnEKs/acZfYB+GCvkt8d/WUg2XOhbev+C9EjuHtE=
-  minerva:auth_google_id:
-    secure: v1:zjgIHO0vScf1CHM3:xPsAqeqLR/GHppY6Fv+hHxuVo+omDfu8MsIBm7QRCm+xknG+oVhxM3YqB/x7IQRFUIaYt9fos+aRWMxxHXPL46WDKaSjz+IYNiDF0V1DPDgBxs1La/ZmQw==
-  minerva:auth_google_secret:
     secure: v1:iAWigbuDh+iHaXIE:bagTyRqlOe8jsHa9bAkyPQ==
   minerva:auth_google_id:
     secure: v1:Tn0TBCMPbl0Hn8tl:lf+zD2t5RaKo3wT33EtYEw==
