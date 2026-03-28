@@ -10,6 +10,7 @@ Purpose:
 import os
 from shared.providers.provider_resolver import ProviderResolver
 from shared.utils.logging import get_logger
+from shared.utils.text_utils import strip_thought_blocks
 from ..pipeline_context import PipelineContext
 
 logger = get_logger("core.pipelines.components.llm")
@@ -119,6 +120,9 @@ class LLMComponent:
             )
             context.is_unknown_query = True
             logger.info("LLM: NO_INFO_AVAILABLE signal detected.")
+
+        # 5. Strip internal thought blocks if present
+        response = strip_thought_blocks(response)
 
         context.llm_response_en = response
         # Token count heuristic
