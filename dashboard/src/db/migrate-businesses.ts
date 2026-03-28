@@ -24,6 +24,7 @@ import { pool } from "@/db";
 import { PoolClient } from "pg";
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 
 const MIGRATIONS_DIR = path.join(process.cwd(), "src/db/business-migrations");
 
@@ -31,6 +32,11 @@ interface MigrationFile {
   version: string; // e.g. "0002"
   filename: string; // e.g. "0002_add_lang_to_sessions.sql"
   sql: string;
+  checksum: string;
+}
+
+function calculateChecksum(content: string): string {
+  return crypto.createHash("sha256").update(content).digest("hex");
 }
 
 /**
@@ -49,11 +55,15 @@ function loadMigrationFiles(): MigrationFile[] {
       (f) => f.endsWith(".sql") && !f.startsWith("0001_") && f.match(/^\d{4}_/)
     )
     .sort()
-    .map((filename) => ({
-      version: filename.substring(0, 4),
-      filename,
-      sql: fs.readFileSync(path.join(MIGRATIONS_DIR, filename), "utf-8"),
-    }));
+    .map((filename) => {
+      const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, filename), "utf-8");
+      return {
+        version: filename.substring(0, 4),
+        filename,
+        sql,
+        checksum: calculateChecksum(sql),
+      };
+    });
 }
 
 /**
@@ -67,9 +77,15 @@ async function ensureMigrationsTable(
     CREATE TABLE IF NOT EXISTS "${schemaName}".schema_migrations (
       version TEXT PRIMARY KEY,
       filename TEXT NOT NULL,
+      checksum TEXT,
       applied_at TIMESTAMPTZ DEFAULT now()
     )
   `);
+}
+
+interface AppliedMigration {
+  version: string;
+  checksum: string | null;
 }
 
 /**
@@ -78,11 +94,15 @@ async function ensureMigrationsTable(
 async function getAppliedVersions(
   client: PoolClient,
   schemaName: string
-): Promise<Set<string>> {
-  const result = await client.query<{ version: string }>(
-    `SELECT version FROM "${schemaName}".schema_migrations`
+): Promise<Map<string, string | null>> {
+  const result = await client.query<AppliedMigration>(
+    `SELECT version, checksum FROM "${schemaName}".schema_migrations`
   );
-  return new Set(result.rows.map((r: { version: string }) => r.version));
+  const map = new Map<string, string | null>();
+  for (const row of result.rows) {
+    map.set(row.version, row.checksum);
+  }
+  return map;
 }
 
 /**
@@ -97,9 +117,23 @@ async function migrateBusinessSchema(
 
   try {
     await ensureMigrationsTable(client, schemaName);
-    const applied = await getAppliedVersions(client, schemaName);
+    const appliedMap = await getAppliedVersions(client, schemaName);
 
-    const pending = migrations.filter((m) => !applied.has(m.version));
+    // Verify checksums of applied migrations
+    for (const migration of migrations) {
+      if (appliedMap.has(migration.version)) {
+        const appliedChecksum = appliedMap.get(migration.version);
+        // If there's no checksum in DB (older migrations), skip validation
+        if (appliedChecksum && appliedChecksum !== migration.checksum) {
+          throw new Error(
+            `Migration checksum mismatch for version ${migration.version} in schema ${schemaName}. ` +
+            `Expected ${appliedChecksum}, but got ${migration.checksum}. The migration file may have been modified.`
+          );
+        }
+      }
+    }
+
+    const pending = migrations.filter((m) => !appliedMap.has(m.version));
 
     if (pending.length === 0) {
       console.log(`[migrate-businesses] ${schemaName}: up to date`);
@@ -114,18 +148,19 @@ async function migrateBusinessSchema(
         await client.query(`SET LOCAL search_path TO "${schemaName}"`);
         await client.query(migration.sql);
         await client.query(
-          `INSERT INTO "${schemaName}".schema_migrations (version, filename) VALUES ($1, $2)`,
-          [migration.version, migration.filename]
+          `INSERT INTO "${schemaName}".schema_migrations (version, filename, checksum) VALUES ($1, $2, $3)`,
+          [migration.version, migration.filename, migration.checksum]
         );
         await client.query("COMMIT");
         console.log(`[migrate-businesses] ${schemaName}: ✓ ${migration.filename}`);
       } catch (err) {
         await client.query("ROLLBACK");
-        throw new Error(
-          `Migration ${migration.filename} failed on ${schemaName}: ${err}`
-        );
+        throw err; // Re-throw to be caught by the outer loop
       }
     }
+  } catch (err) {
+    console.error(`[migrate-businesses] Failed migrating ${schemaName}:`, err);
+    throw err;
   } finally {
     client.release();
   }
