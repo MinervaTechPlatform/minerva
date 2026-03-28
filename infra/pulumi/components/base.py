@@ -47,7 +47,7 @@ class BaseInfra(pulumi.ComponentResource):
 
         self.db_subnet_group = aws.rds.SubnetGroup(
             f"{name}-db-subnets",
-            subnet_ids=self.vpc.private_subnet_ids,
+            subnet_ids=self.vpc.public_subnet_ids if env == "dev" else self.vpc.private_subnet_ids,
             tags=self.tags,
             opts=pulumi.ResourceOptions(parent=self)
         )
@@ -59,6 +59,29 @@ class BaseInfra(pulumi.ComponentResource):
             tags=self.tags,
             opts=pulumi.ResourceOptions(parent=self)
         )
+
+        # Allow access from the internet only in dev environment
+        if env == "dev":
+            aws.ec2.SecurityGroupRule(
+                f"{name}-db-allow-all-ipv4",
+                type="ingress",
+                from_port=5432,
+                to_port=5432,
+                protocol="tcp",
+                cidr_blocks=["0.0.0.0/0"],
+                security_group_id=self.db_sg.id,
+                opts=pulumi.ResourceOptions(parent=self.db_sg)
+            )
+            aws.ec2.SecurityGroupRule(
+                f"{name}-db-allow-all-ipv6",
+                type="ingress",
+                from_port=5432,
+                to_port=5432,
+                protocol="tcp",
+                ipv6_cidr_blocks=["::/0"],
+                security_group_id=self.db_sg.id,
+                opts=pulumi.ResourceOptions(parent=self.db_sg)
+            )
 
         self.db = aws.rds.Instance(
             f"{name}-db",
@@ -72,7 +95,7 @@ class BaseInfra(pulumi.ComponentResource):
             db_subnet_group_name=self.db_subnet_group.name,
             vpc_security_group_ids=[self.db_sg.id],
             multi_az=False,
-            publicly_accessible=False,
+            publicly_accessible=True if env == "dev" else False,
             skip_final_snapshot=True,
             tags=self.tags,
             opts=pulumi.ResourceOptions(parent=self, depends_on=[self.db_subnet_group])
