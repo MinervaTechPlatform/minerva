@@ -7,7 +7,12 @@ on:
       - 'core/**'
       - 'shared/**'
       - 'tests/**'
-      - 'infra/pulumi/**'
+      - 'infra/pulumi/components/core.py'
+      - 'infra/pulumi/components/base.py'
+      - 'infra/pulumi/components/ingestion.py'
+      - 'infra/pulumi/*.yaml'
+      - 'infra/pulumi/__main__.py'
+      - 'infra/docker/Dockerfile.core'
       - '.github/workflows/core.yml'
 
   workflow_dispatch:

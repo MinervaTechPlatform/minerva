@@ -6,7 +6,11 @@ on:
     paths:
       - 'dashboard/**'
       - 'shared/**'
-      - 'infra/pulumi/**'
+      - 'infra/pulumi/components/dashboard.py'
+      - 'infra/pulumi/components/base.py'
+      - 'infra/pulumi/*.yaml'
+      - 'infra/pulumi/__main__.py'
+      - 'infra/docker/Dockerfile.dashboard'
       - '.github/workflows/dashboard.yml'
 
   workflow_dispatch:
