@@ -40,4 +40,5 @@ if deploy_dashboard:
 
 # Final exports
 pulumi.export("db_endpoint", base.db.address)
+pulumi.export("db_url", base.db_url)
 pulumi.export("s3_bucket", base.bucket.id)
