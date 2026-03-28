@@ -101,6 +101,25 @@ class BaseInfra(pulumi.ComponentResource):
             policy_arn="arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
             opts=pulumi.ResourceOptions(parent=self)
         )
+        
+        # Allow ECS to fetch SecureString parameters from SSM
+        aws.iam.RolePolicy(
+            f"{name}-ssm-policy",
+            role=self.ecs_execution_role.name,
+            policy=pulumi.Output.format('''{{
+                "Version": "2012-10-17",
+                "Statement": [
+                    {{
+                        "Effect": "Allow",
+                        "Action": [
+                            "ssm:GetParameters"
+                        ],
+                        "Resource": "arn:aws:ssm:{0}:*:parameter/minerva/{1}/*"
+                    }}
+                ]
+            }}''', aws.get_region().name, env),
+            opts=pulumi.ResourceOptions(parent=self)
+        )
 
         self.register_outputs({
             "vpc_id": self.vpc.vpc_id,

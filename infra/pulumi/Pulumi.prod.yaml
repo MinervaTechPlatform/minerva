@@ -1,0 +1,6 @@
+config:
+  minerva:environment: prod
+  minerva:deploy_core: "true"
+  minerva:deploy_ingestion: "true"
+  minerva:deploy_dashboard: "false"
+encryptionsalt: v1:IqrYg83AvkM=:v1:RsXwtGVJa9GzHZ9C:4IlxiJk6zDfJ2Z0QtaxjlIJA1s4Afw==

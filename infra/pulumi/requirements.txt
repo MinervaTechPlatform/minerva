@@ -4,3 +4,4 @@ pulumi-awsx>=2.0.0
 pulumi-docker>=4.0.0
 pulumi-random
 jinja2>=3.0.0
+sops

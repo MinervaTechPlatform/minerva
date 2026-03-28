@@ -9,6 +9,13 @@ config:
     secure: v1:zjgIHO0vScf1CHM3:xPsAqeqLR/GHppY6Fv+hHxuVo+omDfu8MsIBm7QRCm+xknG+oVhxM3YqB/x7IQRFUIaYt9fos+aRWMxxHXPL46WDKaSjz+IYNiDF0V1DPDgBxs1La/ZmQw==
   minerva:auth_google_secret:
     secure: v1:nvQkU0kYqJ9gt+78:raH4wghgou+W8mFYwE0GN8VaPP+T+t7goYetzaWbPU0Oks5jr6L1Lc60Kz76iwar9vv5
+=======
+    secure: v1:iAWigbuDh+iHaXIE:bagTyRqlOe8jsHa9bAkyPQ==
+  minerva:auth_google_id:
+    secure: v1:Tn0TBCMPbl0Hn8tl:lf+zD2t5RaKo3wT33EtYEw==
+  minerva:auth_google_secret:
+    secure: v1:p94t20amnsoaeVLV:PJAWyTBmHfnndz7kVcZuXg==
+>>>>>>> 6861e43f53d787e873060d6fa1923ea1a9b0ced5
   minerva:deploy_core: "true"
   minerva:deploy_dashboard: "true"
   minerva:deploy_ingestion: "true"

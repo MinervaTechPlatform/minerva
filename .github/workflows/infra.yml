@@ -1,0 +1,52 @@
+name: Infra Deployment
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'infra/**'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: 🚀 Deploy Infrastructure
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+    env:
+      AWS_REGION: us-east-1
+      PULUMI_STACK: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup Pulumi
+        uses: pulumi/setup-pulumi@v2
+
+      - name: Pulumi Up
+        working-directory: infra/pulumi
+        env:
+          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+        run: |
+          pip install -r requirements.txt
+          pulumi login s3://minerva-infra-state
+          
+          # Ensure secrets are synced even during infra-only runs
+          pulumi config set sarvam_api_key "${{ secrets.SARVAM_API_KEY }}" --secret --stack ${{ env.PULUMI_STACK }}
+          pulumi config set auth_secret "${{ secrets.AUTH_SECRET }}" --secret --stack ${{ env.PULUMI_STACK }}
+          pulumi config set auth_google_id "${{ secrets.AUTH_GOOGLE_ID }}" --secret --stack ${{ env.PULUMI_STACK }}
+          pulumi config set auth_google_secret "${{ secrets.AUTH_GOOGLE_SECRET }}" --secret --stack ${{ env.PULUMI_STACK }}
+          
+          pulumi up --yes --stack ${{ env.PULUMI_STACK }}

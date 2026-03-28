@@ -81,7 +81,7 @@ class CoreService(pulumi.ComponentResource):
             vpc_id=base_infra.vpc.vpc_id,
             target_type="ip",
             health_check={
-                "path": "/health",
+                "path": "/internal/health",
                 "healthy_threshold": 2,
                 "unhealthy_threshold": 10,
                 "timeout": 5,
@@ -104,7 +104,36 @@ class CoreService(pulumi.ComponentResource):
             opts=pulumi.ResourceOptions(parent=self)
         )
 
-        # 4. ECS Service (1 vCPU, 1 GB RAM, as requested)
+        # 4. Security Group for Core ECS Tasks
+        self.core_sg = aws.ec2.SecurityGroup(
+            f"{name}-ecs-sg",
+            vpc_id=base_infra.vpc.vpc_id,
+            description="Security group for Core ECS tasks",
+            ingress=[{
+                "protocol": "tcp",
+                "from_port": 8000,
+                "to_port": 8000,
+                "security_groups": [self.alb_sg.id]
+            }],
+            egress=[{"protocol": "-1", "from_port": 0, "to_port": 0, "cidr_blocks": ["0.0.0.0/0"]}],
+            tags=self.tags,
+            opts=pulumi.ResourceOptions(parent=self)
+        )
+
+        # Allow Core to connect to DB
+        aws.ec2.SecurityGroupRule(
+            f"{name}-db-access",
+            type="ingress",
+            protocol="tcp",
+            from_port=5432,
+            to_port=5432,
+            security_group_id=base_infra.db_sg.id,
+            source_security_group_id=self.core_sg.id,
+            description="Allow Core ECS tasks to connect to Postgres",
+            opts=pulumi.ResourceOptions(parent=self)
+        )
+
+        # 4. ECS Service (0.5 vCPU, 1 GB RAM, as requested)
         self.task_def = aws.ecs.TaskDefinition(
             f"{name}-task",
             family=f"{name}",
@@ -115,28 +144,40 @@ class CoreService(pulumi.ComponentResource):
             execution_role_arn=base_infra.ecs_execution_role.arn,
             task_role_arn=self.task_role.arn,
             tags=self.tags,
-            container_definitions=pulumi.Output.format('''[
+            container_definitions=pulumi.Output.all(
+                repo_url=self.repo.repository_url,
+                db_url=base_infra.db_url,
+                log_group=self.log_group.name,
+                region=aws.get_region().name,
+                cluster_name=base_infra.cluster.name,
+                subnet_ids=base_infra.vpc.private_subnet_ids.apply(lambda ids: ",".join(ids)),
+                ingest_arn=ingestion_task_def_arn,
+                account_id=aws.get_caller_identity().account_id,
+                env=env,
+                sarvam_api_key=pulumi.Config().get_secret("sarvam_api_key") or ""
+            ).apply(lambda args: f'''[
                 {{
                     "name": "core",
-                    "image": "{0}",
+                    "image": "{args["repo_url"]}:latest",
                     "portMappings": [{{"containerPort": 8000, "hostPort": 8000}}],
                     "environment": [
-                        {{"name": "DATABASE_URL", "value": "{1}"}},
-                        {{"name": "ENV", "value": "production"}},
-                        {{"name": "ECS_CLUSTER_NAME", "value": "{4}"}},
-                        {{"name": "PRIVATE_SUBNET_IDS", "value": "{5}"}},
-                        {{"name": "INGESTION_TASK_DEF_ARN", "value": "{6}"}}
+                        {{"name": "DATABASE_URL", "value": "{args["db_url"]}"}},
+                        {{"name": "ENV", "value": "{args["env"]}"}},
+                        {{"name": "ECS_CLUSTER_NAME", "value": "{args["cluster_name"]}"}},
+                        {{"name": "PRIVATE_SUBNET_IDS", "value": "{args["subnet_ids"]}"}},
+                        {{"name": "INGESTION_TASK_DEF_ARN", "value": "{args["ingest_arn"]}"}},
+                        {{"name": "SARVAM_API_KEY", "value": "{args["sarvam_api_key"]}"}}
                     ],
                     "logConfiguration": {{
                          "logDriver": "awslogs",
                          "options": {{
-                            "awslogs-group": "{2}",
-                            "awslogs-region": "{3}",
+                            "awslogs-group": "{args["log_group"]}",
+                            "awslogs-region": "{args["region"]}",
                             "awslogs-stream-prefix": "ecs"
                          }}
                     }}
                 }}
-            ]''', self.repo.repository_url, base_infra.db_url, self.log_group.name, aws.get_region().name, base_infra.cluster.name, base_infra.vpc.private_subnet_ids.apply(lambda ids: ",".join(ids)), ingestion_task_def_arn),
+            ]'''),
             opts=pulumi.ResourceOptions(parent=self)
         )
 
@@ -154,7 +195,8 @@ class CoreService(pulumi.ComponentResource):
             },
             network_configuration={
                 "subnets": base_infra.vpc.private_subnet_ids,
-                "security_groups": [base_infra.db_sg.id] # Reuse SG for internal traffic
+                "security_groups": [self.core_sg.id], # Use dedicated Core SG
+                 "assign_public_ip": False 
             },
             tags=self.tags,
             load_balancers=[{
