@@ -42,6 +42,17 @@ class CoreService(pulumi.ComponentResource):
                             "iam:PassRole"
                         ],
                         "Resource": "*"
+                    }},
+                    {{
+                        "Effect": "Allow",
+                        "Action": [
+                            "s3:GetObject",
+                            "s3:ListBucket"
+                        ],
+                        "Resource": [
+                            "arn:aws:s3:::{base_infra.bucket.id}",
+                            "arn:aws:s3:::{base_infra.bucket.id}/*"
+                        ]
                     }}
                 ]
             }}'''),
@@ -154,7 +165,8 @@ class CoreService(pulumi.ComponentResource):
                 ingest_arn=ingestion_task_def_arn,
                 account_id=aws.get_caller_identity().account_id,
                 env=env,
-                sarvam_api_key=pulumi.Config().get_secret("sarvam_api_key") or ""
+                sarvam_api_key=pulumi.Config().get_secret("sarvam_api_key") or "",
+                bucket_name=base_infra.bucket.id
             ).apply(lambda args: f'''[
                 {{
                     "name": "core",
@@ -166,7 +178,8 @@ class CoreService(pulumi.ComponentResource):
                         {{"name": "ECS_CLUSTER_NAME", "value": "{args["cluster_name"]}"}},
                         {{"name": "PRIVATE_SUBNET_IDS", "value": "{args["subnet_ids"]}"}},
                         {{"name": "INGESTION_TASK_DEF_ARN", "value": "{args["ingest_arn"]}"}},
-                        {{"name": "SARVAM_API_KEY", "value": "{args["sarvam_api_key"]}"}}
+                        {{"name": "SARVAM_API_KEY", "value": "{args["sarvam_api_key"]}"}},
+                        {{"name": "S3_BUCKET", "value": "{args["bucket_name"]}"}}
                     ],
                     "logConfiguration": {{
                          "logDriver": "awslogs",

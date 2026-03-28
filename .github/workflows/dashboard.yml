@@ -10,6 +10,12 @@ on:
       - '.github/workflows/dashboard.yml'
 
   workflow_dispatch:
+    inputs:
+      deploy:
+        description: 'Build and Deploy to AWS'
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -51,6 +57,7 @@ jobs:
           echo "cluster=$(pulumi stack output ecs_cluster_name --stack ${{ env.PULUMI_STACK }})" >> "$GITHUB_OUTPUT"
 
       - name: Build & Push
+        if: github.event_name == 'push' || inputs.deploy == true
         run: |
           REPO=${{ steps.pulumi-outputs.outputs.dashboard_repo }}
           SHA_TAG=${GITHUB_SHA::8}
@@ -59,6 +66,7 @@ jobs:
           docker push ${REPO}:latest
 
       - name: Pulumi Deploy & Force Redeploy
+        if: github.event_name == 'push' || inputs.deploy == true
         working-directory: infra/pulumi
         env:
           PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
