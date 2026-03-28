@@ -1,3 +1,4 @@
+import json
 import pulumi
 import pulumi_aws as aws
 
@@ -32,30 +33,25 @@ class CoreService(pulumi.ComponentResource):
         aws.iam.RolePolicy(
             f"{name}-ecs-run-task-policy",
             role=self.task_role.name,
-            policy=pulumi.Output.all(base_infra.cluster.arn, f"arn:aws:ecs:{aws.get_region().name}:*:task-definition/*").apply(lambda args: f'''{{
+            policy=json.dumps({
                 "Version": "2012-10-17",
                 "Statement": [
-                    {{
+                    {
                         "Effect": "Allow",
                         "Action": [
                             "ecs:RunTask",
                             "iam:PassRole"
                         ],
                         "Resource": "*"
-                    }},
-                    {{
-                        "Effect": "Allow",
-                        "Action": [
-                            "s3:GetObject",
-                            "s3:ListBucket"
-                        ],
-                        "Resource": [
-                            "arn:aws:s3:::{base_infra.bucket.id}",
-                            "arn:aws:s3:::{base_infra.bucket.id}/*"
-                        ]
-                    }}
+                    }
                 ]
-            }}'''),
+            }),
+            opts=pulumi.ResourceOptions(parent=self)
+        )
+        aws.iam.RolePolicyAttachment(
+            f"{name}-s3-policy",
+            role=self.task_role.name,
+            policy_arn="arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess",
             opts=pulumi.ResourceOptions(parent=self)
         )
 
