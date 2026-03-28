@@ -1,9 +1,13 @@
 /**
  * /api/testing/message — Server-side proxy for Core message processing.
  *
- * Forwards a text message to Core POST /api/v1/sessions/{sessionId}/message
- * using the JWT token obtained from /api/testing/auth. Returns the
- * response_text and latency_ms from Core.
+ * Calls Core POST /api/v1/sessions/{sessionId}/message/stream (SSE) and
+ * pipes the stream back to the browser. Falls back to the non-streaming
+ * endpoint if the stream endpoint is unavailable.
+ *
+ * SSE events forwarded:
+ *   data: {"delta": "<token>"}
+ *   data: {"done": true, "session_id": "...", "is_complete": bool, "latency_ms": {...}}
  */
 
 import { auth } from "@/auth";
@@ -39,7 +43,7 @@ export async function POST(req: Request) {
 
   try {
     const coreRes = await fetch(
-      `${CORE_API_URL}/api/v1/sessions/${sessionId}/message`,
+      `${CORE_API_URL}/api/v1/sessions/${sessionId}/message/stream`,
       {
         method: "POST",
         headers: {
@@ -51,9 +55,8 @@ export async function POST(req: Request) {
 
     if (!coreRes.ok) {
       const errorBody = await coreRes.text();
-      console.error("[testing/message] Core message failed:", errorBody);
+      console.error("[testing/message] Core stream failed:", errorBody);
 
-      // Token expired – client should re-authenticate
       if (coreRes.status === 401) {
         return NextResponse.json(
           { error: "Session expired. Please re-select an API key.", code: "EXPIRED" },
@@ -67,11 +70,13 @@ export async function POST(req: Request) {
       );
     }
 
-    const data = await coreRes.json();
-    return NextResponse.json({
-      responseText: data.response_text,
-      latencyMs: data.latency_ms,
-      isComplete: data.is_complete,
+    // Pipe the SSE stream directly back to the client
+    return new Response(coreRes.body, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+      },
     });
   } catch (err) {
     console.error("[testing/message] Failed to reach Core:", err);

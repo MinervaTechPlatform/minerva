@@ -5,12 +5,17 @@ Purpose:
     Assembles the full context and generates the final AI response.
     Handles grounded retrieval (RAG), goal steering, and scope denial.
     Detects signals for session completion and missing info.
+
+Scope Classification:
+    Previously performed by RAGComponent as a separate LLM call (expensive).
+    Now handled natively: the system prompt instructs the LLM to output
+    OUT_OF_SCOPE if the query is unrelated to the industry. This eliminates
+    one full LLM roundtrip per request.
 """
 
 import os
 from shared.providers.provider_resolver import ProviderResolver
 from shared.utils.logging import get_logger
-from shared.utils.text_utils import strip_thought_blocks
 from ..pipeline_context import PipelineContext
 
 logger = get_logger("core.pipelines.components.llm")
@@ -34,18 +39,9 @@ class LLMComponent:
         return True
 
     async def execute(self, context: PipelineContext) -> None:
-        # 1. Handle Out-of-Scope (Case 1 from POC)
-        if not context.is_industry_specific and not context.info_available:
-            industry = context.client_config.get("industry", "Business")
-            context.llm_response_en = (
-                f"I am sorry, I can only assist with inquiries related to {industry}. "
-                "Can I help you with any more questions on this topic?"
-            )
-            logger.info("LLM: Handled as Out-of-Scope")
-            return
-
-        # 2. Handle Industry Specific but No Info (Case 4 from POC)
-        if context.is_industry_specific and not context.info_available:
+        # Handle Industry Specific but No Info (Case 4 from POC)
+        # We still short-circuit here because we have hard evidence from RAG.
+        if not context.info_available:
             industry = context.client_config.get("industry", "Business")
             context.llm_response_en = (
                 f"I appreciate your interest in this detail about our {industry} services. "
@@ -53,10 +49,10 @@ class LLMComponent:
                 "I've logged this for a senior representative to review. Is there anything else I can help with?"
             )
             context.is_unknown_query = True
-            logger.info("LLM: Handled as Unknown (No Info)")
+            logger.info("LLM: Handled as Unknown (No Info) — skipping LLM call.")
             return
 
-        # 3. Proceed to Grounded LLM Generation
+        # Proceed to Grounded LLM Generation
         await self._generate_grounded_response(context)
 
     async def _generate_grounded_response(self, context: PipelineContext) -> None:
@@ -70,16 +66,22 @@ class LLMComponent:
         with open(_PROMPT_PATH, "r") as f:
             template = f.read()
 
+        industry = context.client_config.get("industry", "Business")
+
         sys_prompt = template.format(
             summary=context.history_summary or "New session.",
             goal=context.goal_steer_instruction,
             context=context_text,
             question=context.transcript_en
         )
-        
-        # In our architecture, the template includes {context} and {question} 
-        # so user_prompt is just the raw question or redundant. 
-        # Let's keep it clean.
+
+        # Append OUT_OF_SCOPE instruction so scope classification requires no
+        # extra LLM call — the generation model handles it in one pass.
+        sys_prompt += (
+            f"\n\nIMPORTANT: If the user's question is clearly unrelated to {industry} "
+            "and cannot be addressed with the provided context, output exactly: OUT_OF_SCOPE"
+        )
+
         user_prompt = f"Question: {context.transcript_en}"
 
         # 3. Call LLM
@@ -94,9 +96,6 @@ class LLMComponent:
                     temperature=0.3
                 )
         except Exception as exc:
-            # Fallback to alternate if primary fails (handled by resolver logic?)
-            # Actually, let's let PipelineRunner handle the catch-and-raise
-            # but we can try alternate manually if we want more control.
             logger.error(f"LLM primary failed: {exc}")
             alt_llm = resolver.get_alternate_provider("llm", llm.provider_name, context.business_id)
             if not alt_llm:
@@ -104,7 +103,18 @@ class LLMComponent:
             with context.tracker.measure("LLM:Generate_Fallback"):
                 response = await alt_llm.chat_completion(sys_prompt, user_prompt)
 
-        # 4. Post-process (Signals)
+        # 4. Post-process signals
+
+        # Scope denial — consolidated from the removed RAGComponent LLM call
+        if "OUT_OF_SCOPE" in response:
+            context.llm_response_en = (
+                f"I am sorry, I can only assist with inquiries related to {industry}. "
+                "Can I help you with any more questions on this topic?"
+            )
+            context.is_industry_specific = False
+            logger.info("LLM: OUT_OF_SCOPE signal detected.")
+            return
+
         if "[COMPLETE]" in response:
             context.is_complete = True
             response = response.replace("[COMPLETE]", "").strip()
@@ -120,9 +130,6 @@ class LLMComponent:
             )
             context.is_unknown_query = True
             logger.info("LLM: NO_INFO_AVAILABLE signal detected.")
-
-        # 5. Strip internal thought blocks if present
-        response = strip_thought_blocks(response)
 
         context.llm_response_en = response
         # Token count heuristic

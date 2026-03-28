@@ -9,9 +9,14 @@ Interface:
         def chat_completion(self, system_prompt: str, user_prompt: str,
                           temperature: float, max_tokens: int) -> str
             Returns: generated text response
+
+        def chat_completion_stream(self, system_prompt: str, user_prompt: str,
+                                   temperature: float, max_tokens: int) -> AsyncIterator[str]
+            Yields: text delta chunks as they arrive from the model
 """
 
 from abc import ABC, abstractmethod
+from typing import AsyncIterator
 
 
 class LLMProvider(ABC):
@@ -41,6 +46,26 @@ class LLMProvider(ABC):
             ProviderError: If the API call fails.
         """
         ...
+
+    async def chat_completion_stream(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.3,
+        max_tokens: int = 500,
+    ) -> AsyncIterator[str]:
+        """
+        Stream text delta chunks from the LLM.
+
+        Default implementation falls back to non-streaming chat_completion,
+        yielding the full response as a single chunk. Override in subclasses
+        for true token-level streaming.
+
+        Yields:
+            Text delta strings as they arrive.
+        """
+        result = await self.chat_completion(system_prompt, user_prompt, temperature, max_tokens)
+        yield result
 
     @property
     @abstractmethod

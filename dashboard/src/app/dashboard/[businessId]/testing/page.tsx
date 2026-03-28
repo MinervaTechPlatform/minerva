@@ -161,6 +161,9 @@ export default function TestingPage() {
     setInput("");
     setIsSending(true);
 
+    // Placeholder ID for the streaming assistant message
+    const assistantId = (Date.now() + 1).toString();
+
     try {
       const res = await fetch("/api/testing/message", {
         method: "POST",
@@ -173,9 +176,9 @@ export default function TestingPage() {
         }),
       });
 
-      const data = await res.json();
-
       if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+
         // Session expired — prompt re-auth
         if (res.status === 401 || data.code === "EXPIRED") {
           setSessionState({ status: "error", message: "Session expired. Please re-select an API key." });
@@ -186,7 +189,7 @@ export default function TestingPage() {
         setMessages((prev) => [
           ...prev,
           {
-            id: (Date.now() + 1).toString(),
+            id: assistantId,
             role: "assistant",
             content: `⚠️ Error from Core: ${data.error ?? "Unknown error"}${data.detail ? `\n\n${data.detail}` : ""}`,
             mode,
@@ -197,22 +200,74 @@ export default function TestingPage() {
         return;
       }
 
+      // ── Stream consumption ─────────────────────────────────────────────
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response body");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let firstChunk = true;
+
+      // Add the assistant message bubble immediately (empty, will fill in)
       setMessages((prev) => [
         ...prev,
         {
-          id: (Date.now() + 1).toString(),
+          id: assistantId,
           role: "assistant",
-          content: data.responseText,
+          content: "",
           mode,
           timestamp: new Date(),
-          latencyMs: data.latencyMs,
         },
       ]);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? ""; // keep incomplete last line
+
+        for (const line of lines) {
+          if (!line.startsWith("data:")) continue;
+          const raw = line.slice("data:".length).trim();
+          if (!raw) continue;
+
+          let event: Record<string, unknown>;
+          try {
+            event = JSON.parse(raw);
+          } catch {
+            continue;
+          }
+
+          if (typeof event.delta === "string") {
+            // Append delta token to the assistant message
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, content: m.content + event.delta }
+                  : m
+              )
+            );
+            firstChunk = false;
+          }
+
+          if (event.done === true) {
+            // Attach latency metadata to the completed message
+            const latency = event.latency_ms as Record<string, number> | undefined;
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId ? { ...m, latencyMs: latency } : m
+              )
+            );
+          }
+        }
+      }
     } catch {
       setMessages((prev) => [
         ...prev,
         {
-          id: (Date.now() + 1).toString(),
+          id: assistantId,
           role: "assistant",
           content: "⚠️ Could not reach the Core engine. Check that CORE_API_URL is correct.",
           mode,
@@ -224,6 +279,7 @@ export default function TestingPage() {
       setIsSending(false);
     }
   };
+
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {

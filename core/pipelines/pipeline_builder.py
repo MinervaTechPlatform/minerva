@@ -53,3 +53,8 @@ class PipelineBuilder:
             components.append(component_class())
 
         return PipelineRunner(components)
+
+    @staticmethod
+    def _make_runner(components: list) -> PipelineRunner:
+        """Create a PipelineRunner from an arbitrary component list (used by streaming endpoint)."""
+        return PipelineRunner(components)

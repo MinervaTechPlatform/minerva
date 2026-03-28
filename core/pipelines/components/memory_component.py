@@ -5,6 +5,7 @@ Purpose:
     Manages context via Repository abstraction.
 """
 
+import asyncio
 import os
 from core.repositories.session_repository import SessionRepository
 from core.repositories.message_repository import MessageRepository
@@ -40,10 +41,12 @@ class MemoryComponent:
         if session:
             context.history_summary = session.conversation_summary or ""
         
-        # 2. Update every 3 turns
+        # 2. Update every 3 turns — fire-and-forget so we don't block the pipeline.
+        # The current response uses the *previous* summary; the new one is persisted
+        # in the background and will be available on the next turn.
         history = await message_repo.get_history(context.session_id, limit=6)
         if len(history) > 0 and len(history) % 6 == 0:
-            await self._update_summary(context, session_repo, history)
+            asyncio.create_task(self._update_summary(context, session_repo, history))
 
     async def _update_summary(self, context, repo, history) -> None:
         logger.info(f"Memory: Updating summary for session {context.session_id}")
