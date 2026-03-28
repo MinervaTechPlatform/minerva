@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+
 import {
   Select,
   SelectContent,
@@ -34,6 +35,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ThinkingBox } from "@/components/thinking-box";
+import { cn } from "@/lib/utils";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -56,8 +59,29 @@ interface Message {
 type SessionState =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "ready"; token: string; sessionId: string }
-  | { status: "error"; message: string };
+| { status: "ready"; token: string; sessionId: string }
+| { status: "error"; message: string };
+
+function parseThinkContent(content: string) {
+  const thinkStart = "<think>";
+  const thinkEnd = "</think>";
+
+  const startIndex = content.indexOf(thinkStart);
+  if (startIndex === -1) return { thinking: null, isThinking: false, text: content };
+
+  const endIndex = content.indexOf(thinkEnd);
+
+  if (endIndex === -1) {
+    const thinking = content.slice(startIndex + thinkStart.length);
+    const textBefore = content.slice(0, startIndex);
+    return { thinking, isThinking: true, text: textBefore };
+  } else {
+    const thinking = content.slice(startIndex + thinkStart.length, endIndex);
+    const textBefore = content.slice(0, startIndex);
+    const textAfter = content.slice(endIndex + thinkEnd.length);
+    return { thinking, isThinking: false, text: textBefore + textAfter };
+  }
+}
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
@@ -82,7 +106,8 @@ export default function TestingPage() {
   const [isSending, setIsSending] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
-
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
   // ─── Auto-scroll ────────────────────────────────────────────────────────
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -145,8 +170,8 @@ export default function TestingPage() {
   };
 
   // ─── Send Message ────────────────────────────────────────────────────────
-  const sendMessage = async (content: string, mode: "text" | "speech") => {
-    if (!content.trim()) return;
+  const sendMessage = async (content: string, mode: "text" | "speech", audioBlob?: Blob) => {
+    if (!content.trim() && !audioBlob) return;
     if (sessionState.status !== "ready") return;
 
     const userMessage: Message = {
@@ -165,18 +190,20 @@ export default function TestingPage() {
     const assistantId = (Date.now() + 1).toString();
 
     try {
+      const formData = new FormData();
+      formData.append("sessionId", sessionState.sessionId);
+      formData.append("token", sessionState.token);
+      formData.append("language", "en-IN");
+      if (content) formData.append("text", content);
+      if (audioBlob) formData.append("audio", audioBlob, "recording.webm");
+
       const res = await fetch("/api/testing/message", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: sessionState.sessionId,
-          token: sessionState.token,
-          text: content,
-          language: "en-IN",
-        }),
+        body: formData,
       });
 
       if (!res.ok) {
+
         const data = await res.json().catch(() => ({}));
 
         // Session expired — prompt re-auth
@@ -252,6 +279,16 @@ export default function TestingPage() {
             firstChunk = false;
           }
 
+          if (typeof event.audio === "string") {
+            try {
+              const audioUrl = `data:audio/wav;base64,${event.audio}`;
+              const audioObj = new Audio(audioUrl);
+              audioObj.play().catch(e => console.error("Audio playback failed:", e));
+            } catch (e) {
+              console.error("Failed to parse audio payload", e);
+            }
+          }
+
           if (event.done === true) {
             // Attach latency metadata to the completed message
             const latency = event.latency_ms as Record<string, number> | undefined;
@@ -288,18 +325,34 @@ export default function TestingPage() {
     }
   };
 
-  const toggleRecording = () => {
+  const toggleRecording = async () => {
     if (isRecording) {
       setIsRecording(false);
-      // In production this would capture real audio; for now simulate transcript
-      setTimeout(() => {
-        sendMessage(
-          "This is a simulated speech transcript. Connect a real STT provider to enable voice input.",
-          "speech"
-        );
-      }, 500);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current.stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+      }
     } else {
-      setIsRecording(true);
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorderRef.current = new MediaRecorder(stream);
+        chunksRef.current = [];
+        
+        mediaRecorderRef.current.ondataavailable = (e: BlobEvent) => {
+          if (e.data.size > 0) chunksRef.current.push(e.data);
+        };
+        
+        mediaRecorderRef.current.onstop = () => {
+          const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+          sendMessage("🎤 Voice Input...", "speech", blob);
+        };
+        
+        mediaRecorderRef.current.start();
+        setIsRecording(true);
+      } catch (err) {
+        toast.error("Microphone access denied or error");
+        console.error(err);
+      }
     }
   };
 
@@ -506,16 +559,33 @@ export default function TestingPage() {
                       <Bot className={`w-4 h-4 ${message.isError ? "text-destructive" : "text-primary-foreground"}`} />
                     </div>
                   )}
-                  <div
-                    className={`max-w-[70%] rounded-2xl px-4 py-3 ${
+                    <div
+                    className={cn(
+                      "max-w-[85%] rounded-2xl px-4 py-3 shadow-xs",
                       message.role === "user"
                         ? "bg-primary text-primary-foreground rounded-br-md"
                         : message.isError
                         ? "bg-destructive/10 border border-destructive/20 text-destructive rounded-bl-md"
                         : "bg-muted text-foreground rounded-bl-md"
-                    }`}
+                    )}
                   >
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                    {(() => {
+                      const { thinking, isThinking, text } = parseThinkContent(message.content);
+                      return (
+                        <>
+                          {thinking !== null && (
+                            <ThinkingBox content={thinking} isThinking={isThinking} />
+                          )}
+                          {text.trim() ? (
+                            <p className="text-[14.5px] leading-relaxed whitespace-pre-wrap font-sans tracking-tight">
+                              {text.trim()}
+                            </p>
+                          ) : isThinking ? null : (
+                            <p className="text-sm italic opacity-40">No final response provided.</p>
+                          )}
+                        </>
+                      );
+                    })()}
                     <div
                       className={`flex items-center gap-1.5 mt-1.5 text-xs ${
                         message.role === "user"

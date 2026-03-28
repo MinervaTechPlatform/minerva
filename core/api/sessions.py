@@ -11,7 +11,7 @@ import json
 import uuid
 from typing import Optional, AsyncIterator
 
-from fastapi import APIRouter, Request, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Request, HTTPException, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -148,6 +148,7 @@ async def process_message(
 async def process_message_stream(
     session_id: uuid.UUID,
     request: Request,
+    background_tasks: BackgroundTasks,
     text: Optional[str] = Form(None),
     language: str = Form("en-IN"),
     audio: Optional[UploadFile] = File(None),
@@ -184,6 +185,8 @@ async def process_message_stream(
             passed_llm = True
             continue  # LLM handled separately below
         if passed_llm:
+            if component.name == "tts" and not audio:
+                continue # Skip TTS if no audio input was provided
             post_llm.append(component)
         else:
             pre_llm.append(component)
@@ -243,7 +246,7 @@ async def process_message_stream(
                     full_response.append(delta)
                     yield f"data: {json.dumps({'delta': delta})}\n\n"
 
-            raw_response = strip_thought_blocks("".join(full_response))
+            raw_response = "".join(full_response)
 
             # Post-process signals
             if "[COMPLETE]" in raw_response:
@@ -261,23 +264,32 @@ async def process_message_stream(
             context.llm_response_en = raw_response
             context.llm_tokens = len(sys_prompt.split()) + len(raw_response.split())
 
-
-        # Run post-LLM stages (TranslationOut, TTS)
+        # Run post-LLM stages (like TranslationOut and TTS) so we can stream audio if needed
         from core.pipelines.pipeline_runner import PipelineRunner as _Runner
-        post_runner = _Runner(post_llm)
-        try:
-            await post_runner.run(context)
-        except Exception as exc:
-            logger.warning(f"Post-LLM stage error (non-fatal for text): {exc}")
+        if post_llm:
+            post_runner = _Runner(post_llm)
+            try:
+                await post_runner.run(context)
+            except Exception as exc:
+                logger.warning(f"Post-LLM stage error: {exc}")
 
-        # Persist results
-        try:
-            await _persist_results(context, session_id)
-        except Exception as exc:
-            logger.error(f"Persistence error: {exc}", exc_info=True)
+        # If audio was generated, encode it as base64 and yield
+        if context.final_audio:
+            import base64
+            b64_audio = base64.b64encode(context.final_audio).decode('utf-8')
+            yield f"data: {json.dumps({'audio': b64_audio})}\n\n"
 
-        # Final done event
+        # Yield 'done' to signal the end of the stream
         yield f"data: {json.dumps({'done': True, 'session_id': str(session_id), 'is_complete': context.is_complete, 'latency_ms': {k: round(v * 1000) for k, v in context.tracker.all().items()}})}\n\n"
+
+        # Offload ONLY persistence to background tasks to return immediately
+        async def background_pipeline_finish(ctx: PipelineContext, s_id: uuid.UUID):
+            try:
+                await _persist_results(ctx, s_id)
+            except Exception as e:
+                logger.error(f"Persistence failed: {e}", exc_info=True)
+
+        background_tasks.add_task(background_pipeline_finish, context, session_id)
 
     return StreamingResponse(
         sse_generator(),

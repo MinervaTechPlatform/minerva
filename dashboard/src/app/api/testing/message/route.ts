@@ -21,7 +21,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { sessionId, token, text, language } = await req.json();
+  const formData = await req.formData().catch(() => new FormData());
+  const sessionId = formData.get("sessionId") as string | null;
+  const token = formData.get("token") as string | null;
+  const text = formData.get("text") as string | null;
+  const language = formData.get("language") as string | null;
+  const audio = formData.get("audio") as Blob | null;
+
   if (!sessionId || !token) {
     return NextResponse.json(
       { error: "sessionId and token are required" },
@@ -29,17 +35,19 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!text?.trim()) {
+  if (!text?.trim() && !audio) {
     return NextResponse.json(
-      { error: "Message text is required" },
+      { error: "Message text or audio is required" },
       { status: 400 }
     );
   }
 
-  // Build multipart form-data as required by Core's sessions endpoint
-  const formData = new FormData();
-  formData.append("text", text);
-  formData.append("language", language ?? "en-IN");
+  // Build multipart form-data for Core
+  const coreFormData = new FormData();
+  if (text) coreFormData.append("text", text);
+  coreFormData.append("language", language ?? "en-IN");
+  if (audio) coreFormData.append("audio", audio, "recording.wav");
+
 
   try {
     const coreRes = await fetch(

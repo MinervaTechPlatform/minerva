@@ -99,10 +99,7 @@ class LLMComponent:
             with context.tracker.measure("LLM:Generate_Fallback"):
                 response = await alt_llm.chat_completion(sys_prompt, user_prompt)
 
-        # 4. Strip <think> blocks before any further processing
-        response = strip_thought_blocks(response)
-
-        # 5. Post-process signals
+        # 4. Post-process signals
         if "[COMPLETE]" in response:
             context.is_complete = True
             response = response.replace("[COMPLETE]", "").strip()
