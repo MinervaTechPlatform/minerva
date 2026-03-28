@@ -10,6 +10,8 @@ on:
       - 'infra/pulumi/**'
       - '.github/workflows/core.yml'
 
+  workflow_dispatch:
+
 permissions:
   contents: read
 
