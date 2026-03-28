@@ -1,21 +1,22 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { useParams, useRouter } from "next/navigation";
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { UpgradeBanner } from "@/components/upgrade-banner";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Send,
   Mic,
@@ -25,7 +26,22 @@ import {
   Volume2,
   MessageSquare,
   Sparkles,
+  Key,
+  Plus,
+  RefreshCw,
+  AlertCircle,
+  CheckCircle2,
+  Loader2,
 } from "lucide-react";
+import { toast } from "sonner";
+
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+interface ApiKey {
+  id: string;
+  name: string;
+  keyPrefix: string;
+}
 
 interface Message {
   id: string;
@@ -33,38 +49,105 @@ interface Message {
   content: string;
   mode: "text" | "speech";
   timestamp: Date;
+  latencyMs?: Record<string, number>;
+  isError?: boolean;
 }
 
-const SAMPLE_RESPONSES = [
-  "Hello! I'm Minerva, your AI speech assistant. How can I help you today?",
-  "Based on your documents, I can see that the warehouse operations have been running at 85% capacity. Would you like me to provide a detailed breakdown?",
-  "I've analyzed the customer support tickets from last week. The most common issues were related to billing inquiries and shipment tracking.",
-  "The lead generation metrics show a 23% improvement compared to the previous quarter. I can share more specific insights about which channels performed best.",
-  "I can help you with that! Let me review the relevant documents and get back to you with the information you need.",
-];
+type SessionState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready"; token: string; sessionId: string }
+  | { status: "error"; message: string };
+
+// ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function TestingPage() {
   const params = useParams();
+  const router = useRouter();
   const businessId = params.businessId as string;
+
+  // API key state
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
+  const [loadingKeys, setLoadingKeys] = useState(true);
+  const [selectedKeyId, setSelectedKeyId] = useState<string | null>(null);
+
+  // Session state
+  const [sessionState, setSessionState] = useState<SessionState>({ status: "idle" });
+
+  // Chat state
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isSpeechMode, setIsSpeechMode] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [isThinking, setIsThinking] = useState(false);
-  const [textChatsUsed, setTextChatsUsed] = useState(0);
-  const [speechChatsUsed, setSpeechChatsUsed] = useState(0);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [isSending, setIsSending] = useState(false);
 
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  // ─── Auto-scroll ────────────────────────────────────────────────────────
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // ─── Fetch API Keys ──────────────────────────────────────────────────────
+  const fetchApiKeys = useCallback(async () => {
+    setLoadingKeys(true);
+    try {
+      const res = await fetch(`/api/businesses/${businessId}/api-keys`);
+      if (res.ok) {
+        const data: ApiKey[] = await res.json();
+        setApiKeys(data);
+      }
+    } catch {
+      toast.error("Failed to load API keys");
+    } finally {
+      setLoadingKeys(false);
+    }
+  }, [businessId]);
+
+  useEffect(() => {
+    fetchApiKeys();
+  }, [fetchApiKeys]);
+
+  // ─── Authenticate + Create Session ──────────────────────────────────────
+  const startSession = useCallback(async (keyId: string) => {
+    setSessionState({ status: "loading" });
+    setMessages([]);
+
+    try {
+      const res = await fetch("/api/testing/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKeyId: keyId, businessId }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setSessionState({ status: "error", message: data.error ?? "Authentication failed" });
+        return;
+      }
+
+      setSessionState({
+        status: "ready",
+        token: data.token,
+        sessionId: data.sessionId,
+      });
+    } catch {
+      setSessionState({ status: "error", message: "Could not reach Core engine" });
+    }
+  }, [businessId]);
+
+  // Automatically start a session when a key is selected
+  const handleKeySelect = (keyId: string | null) => {
+    if (!keyId) return;
+    setSelectedKeyId(keyId);
+    startSession(keyId);
+  };
+
+  // ─── Send Message ────────────────────────────────────────────────────────
   const sendMessage = async (content: string, mode: "text" | "speech") => {
     if (!content.trim()) return;
-    if (mode === "text" && textChatsUsed >= 10) return;
-    if (mode === "speech" && speechChatsUsed >= 10) return;
+    if (sessionState.status !== "ready") return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -76,26 +159,70 @@ export default function TestingPage() {
 
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
-    setIsThinking(true);
+    setIsSending(true);
 
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    try {
+      const res = await fetch("/api/testing/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: sessionState.sessionId,
+          token: sessionState.token,
+          text: content,
+          language: "en-IN",
+        }),
+      });
 
-    const responseText =
-      SAMPLE_RESPONSES[Math.floor(Math.random() * SAMPLE_RESPONSES.length)];
+      const data = await res.json();
 
-    const assistantMessage: Message = {
-      id: (Date.now() + 1).toString(),
-      role: "assistant",
-      content: responseText,
-      mode,
-      timestamp: new Date(),
-    };
+      if (!res.ok) {
+        // Session expired — prompt re-auth
+        if (res.status === 401 || data.code === "EXPIRED") {
+          setSessionState({ status: "error", message: "Session expired. Please re-select an API key." });
+          toast.error("Session expired — re-select your API key to continue");
+          return;
+        }
 
-    setMessages((prev) => [...prev, assistantMessage]);
-    setIsThinking(false);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            role: "assistant",
+            content: `⚠️ Error from Core: ${data.error ?? "Unknown error"}${data.detail ? `\n\n${data.detail}` : ""}`,
+            mode,
+            timestamp: new Date(),
+            isError: true,
+          },
+        ]);
+        return;
+      }
 
-    if (mode === "text") setTextChatsUsed((prev) => prev + 1);
-    else setSpeechChatsUsed((prev) => prev + 1);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: data.responseText,
+          mode,
+          timestamp: new Date(),
+          latencyMs: data.latencyMs,
+        },
+      ]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: "⚠️ Could not reach the Core engine. Check that CORE_API_URL is correct.",
+          mode,
+          timestamp: new Date(),
+          isError: true,
+        },
+      ]);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -108,21 +235,28 @@ export default function TestingPage() {
   const toggleRecording = () => {
     if (isRecording) {
       setIsRecording(false);
+      // In production this would capture real audio; for now simulate transcript
       setTimeout(() => {
         sendMessage(
-          "This is a simulated speech transcript. In production, this would use your speech-to-text service.",
+          "This is a simulated speech transcript. Connect a real STT provider to enable voice input.",
           "speech"
         );
       }, 500);
     } else {
-      if (speechChatsUsed >= 10) return;
       setIsRecording(true);
     }
   };
 
+  // ─── Derived state ───────────────────────────────────────────────────────
+  const isReady = sessionState.status === "ready";
+  const isSessionLoading = sessionState.status === "loading";
+  const selectedKey = apiKeys.find((k) => k.id === selectedKeyId);
+
+  // ─── Render ──────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6 h-[calc(100vh-8rem)] flex flex-col">
-      <div className="flex items-center justify-between shrink-0">
+    <div className="space-y-4 h-[calc(100vh-8rem)] flex flex-col">
+      {/* Header */}
+      <div className="flex items-start justify-between shrink-0 gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Testing</h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -134,18 +268,14 @@ export default function TestingPage() {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 bg-card rounded-lg border border-border px-3 py-2">
             <MessageSquare
-              className={`w-4 h-4 ${
-                !isSpeechMode ? "text-primary" : "text-muted-foreground"
-              }`}
+              className={`w-4 h-4 ${!isSpeechMode ? "text-primary" : "text-muted-foreground"}`}
             />
             <Switch
               checked={isSpeechMode}
               onCheckedChange={setIsSpeechMode}
             />
             <Mic
-              className={`w-4 h-4 ${
-                isSpeechMode ? "text-primary" : "text-muted-foreground"
-              }`}
+              className={`w-4 h-4 ${isSpeechMode ? "text-primary" : "text-muted-foreground"}`}
             />
           </div>
           <Badge variant="outline" className="text-xs">
@@ -154,56 +284,157 @@ export default function TestingPage() {
         </div>
       </div>
 
-      {/* Usage indicators */}
-      <div className="flex gap-3 shrink-0">
-        <Badge
-          variant="outline"
-          className={`text-xs ${
-            textChatsUsed >= 10
-              ? "border-red-500/30 text-red-600 dark:text-red-400 bg-red-500/10"
-              : ""
-          }`}
-        >
-          Text: {textChatsUsed}/10
-        </Badge>
-        <Badge
-          variant="outline"
-          className={`text-xs ${
-            speechChatsUsed >= 10
-              ? "border-red-500/30 text-red-600 dark:text-red-400 bg-red-500/10"
-              : ""
-          }`}
-        >
-          Speech: {speechChatsUsed}/10
-        </Badge>
-        {(textChatsUsed >= 8 || speechChatsUsed >= 8) && (
-          <UpgradeBanner
-            businessId={businessId}
-            message="Running low on trial chats"
-            variant="compact"
-          />
-        )}
+      {/* API Key Selector */}
+      <div className="shrink-0">
+        <Card className="border-border/60">
+          <CardContent className="py-3 px-4">
+            <div className="flex items-center gap-3">
+              <Key className="w-4 h-4 text-muted-foreground shrink-0" />
+              <span className="text-sm text-muted-foreground shrink-0">API Key:</span>
+
+              {loadingKeys ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Loading keys…
+                </div>
+              ) : apiKeys.length === 0 ? (
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground">
+                    No API keys found.
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs gap-1.5"
+                    onClick={() =>
+                      router.push(`/dashboard/${businessId}/settings?tab=api-keys`)
+                    }
+                  >
+                    <Plus className="w-3 h-3" />
+                    Create API Key
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 flex-1">
+                  <Select
+                    value={selectedKeyId ?? ""}
+                    onValueChange={handleKeySelect}
+                  >
+                    <SelectTrigger className="h-8 text-sm max-w-xs">
+                      <SelectValue placeholder="Select an API key…">
+                        {selectedKey?.name}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {apiKeys.map((key) => (
+                        <SelectItem key={key.id} value={key.id}>
+                          <span className="font-medium">{key.name}</span>
+                          <span className="text-muted-foreground ml-2 font-mono text-xs">
+                            {key.keyPrefix}
+                          </span>
+                        </SelectItem>
+                      ))}
+                      <div className="border-t border-border mt-1 pt-1">
+                        <button
+                          className="w-full text-left px-2 py-1.5 text-sm text-primary hover:bg-muted rounded-sm flex items-center gap-1.5"
+                          onClick={() =>
+                            router.push(
+                              `/dashboard/${businessId}/settings?tab=api-keys`
+                            )
+                          }
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          Create new API key
+                        </button>
+                      </div>
+                    </SelectContent>
+                  </Select>
+
+                  {/* Session status pill */}
+                  {isSessionLoading && (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Connecting…
+                    </div>
+                  )}
+                  {sessionState.status === "ready" && (
+                    <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Connected
+                    </div>
+                  )}
+                  {sessionState.status === "error" && (
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 text-xs text-destructive">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        {sessionState.message}
+                      </div>
+                      {selectedKeyId && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 text-xs gap-1"
+                          onClick={() => startSession(selectedKeyId)}
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          Retry
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* New session button */}
+                  {isReady && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs gap-1.5 ml-auto"
+                      onClick={() => selectedKeyId && startSession(selectedKeyId)}
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      New Session
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Chat area */}
       <Card className="flex-1 flex flex-col overflow-hidden">
-        <ScrollArea className="flex-1 p-4" ref={scrollRef}>
+        <div className="flex-1 overflow-y-auto p-4 min-h-0">
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center py-16">
               <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
                 <Sparkles className="w-8 h-8 text-primary" />
               </div>
               <h3 className="text-lg font-semibold text-foreground">
-                Start a conversation
+                {!selectedKeyId
+                  ? "Select an API key to start"
+                  : isSessionLoading
+                  ? "Connecting to Core…"
+                  : sessionState.status === "error"
+                  ? "Connection failed"
+                  : "Start a conversation"}
               </h3>
               <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-                {isSpeechMode
+                {!selectedKeyId
+                  ? "Choose an API key from the dropdown above to connect to the Core engine"
+                  : isSessionLoading
+                  ? "Authenticating and creating a session…"
+                  : sessionState.status === "error"
+                  ? sessionState.message
+                  : isSpeechMode
                   ? "Click the microphone button to start speaking"
                   : "Type a message below to begin chatting with Minerva"}
               </p>
-              <p className="text-xs text-muted-foreground mt-4 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-1.5">
-                ⚠️ Prototype mode — responses are simulated
-              </p>
+              {isReady && selectedKey && (
+                <p className="text-xs text-muted-foreground mt-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-1.5">
+                  ✓ Connected using <span className="font-medium">{selectedKey.name}</span>
+                </p>
+              )}
             </div>
           ) : (
             <div className="space-y-4">
@@ -215,18 +446,20 @@ export default function TestingPage() {
                   }`}
                 >
                   {message.role === "assistant" && (
-                    <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shrink-0 shadow-sm">
-                      <Bot className="w-4 h-4 text-primary-foreground" />
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm ${message.isError ? "bg-destructive/20" : "bg-primary"}`}>
+                      <Bot className={`w-4 h-4 ${message.isError ? "text-destructive" : "text-primary-foreground"}`} />
                     </div>
                   )}
                   <div
                     className={`max-w-[70%] rounded-2xl px-4 py-3 ${
                       message.role === "user"
                         ? "bg-primary text-primary-foreground rounded-br-md"
+                        : message.isError
+                        ? "bg-destructive/10 border border-destructive/20 text-destructive rounded-bl-md"
                         : "bg-muted text-foreground rounded-bl-md"
                     }`}
                   >
-                    <p className="text-sm leading-relaxed">{message.content}</p>
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
                     <div
                       className={`flex items-center gap-1.5 mt-1.5 text-xs ${
                         message.role === "user"
@@ -234,15 +467,18 @@ export default function TestingPage() {
                           : "text-muted-foreground"
                       }`}
                     >
-                      {message.mode === "speech" && (
-                        <Volume2 className="w-3 h-3" />
-                      )}
+                      {message.mode === "speech" && <Volume2 className="w-3 h-3" />}
                       <span>
                         {message.timestamp.toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}
                       </span>
+                      {message.latencyMs && (
+                        <span className="ml-1 opacity-60">
+                          · {Object.values(message.latencyMs).reduce((s, v) => s + v, 0).toFixed(0)}ms
+                        </span>
+                      )}
                     </div>
                   </div>
                   {message.role === "user" && (
@@ -253,7 +489,7 @@ export default function TestingPage() {
                 </div>
               ))}
 
-              {isThinking && (
+              {isSending && (
                 <div className="flex gap-3 justify-start">
                   <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shrink-0 shadow-sm">
                     <Bot className="w-4 h-4 text-primary-foreground" />
@@ -273,9 +509,10 @@ export default function TestingPage() {
                   </div>
                 </div>
               )}
+              <div ref={bottomRef} />
             </div>
           )}
-        </ScrollArea>
+        </div>
 
         {/* Input area */}
         <div className="border-t border-border p-4 bg-card/50">
@@ -283,11 +520,11 @@ export default function TestingPage() {
             <div className="flex flex-col items-center gap-3">
               <button
                 onClick={toggleRecording}
-                disabled={speechChatsUsed >= 10}
+                disabled={!isReady || isSending}
                 className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-300 cursor-pointer ${
                   isRecording
                     ? "bg-red-500 shadow-lg shadow-red-500/25 scale-110"
-                    : speechChatsUsed >= 10
+                    : !isReady || isSending
                     ? "bg-muted cursor-not-allowed"
                     : "bg-primary shadow-lg shadow-primary/25 hover:scale-105"
                 }`}
@@ -299,10 +536,10 @@ export default function TestingPage() {
                 )}
               </button>
               <p className="text-xs text-muted-foreground">
-                {isRecording
-                  ? "Recording... Click to stop"
-                  : speechChatsUsed >= 10
-                  ? "Trial limit reached"
+                {!isReady
+                  ? "Select an API key to enable voice"
+                  : isRecording
+                  ? "Recording… Click to stop"
                   : "Click to start recording"}
               </p>
               {isRecording && (
@@ -327,21 +564,25 @@ export default function TestingPage() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={
-                  textChatsUsed >= 10
-                    ? "Trial limit reached. Upgrade to Pro for more."
-                    : "Type your message..."
+                  !isReady
+                    ? "Select an API key above to start chatting…"
+                    : "Type your message…"
                 }
-                disabled={textChatsUsed >= 10}
+                disabled={!isReady || isSending}
                 className="resize-none min-h-[44px] max-h-[120px]"
                 rows={1}
               />
               <Button
                 onClick={() => sendMessage(input, "text")}
-                disabled={!input.trim() || textChatsUsed >= 10}
+                disabled={!input.trim() || !isReady || isSending}
                 className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm shrink-0"
                 size="icon"
               >
-                <Send className="w-4 h-4" />
+                {isSending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
               </Button>
             </div>
           )}

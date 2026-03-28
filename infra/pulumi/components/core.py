@@ -1,3 +1,4 @@
+import json
 import pulumi
 import pulumi_aws as aws
 
@@ -32,19 +33,32 @@ class CoreService(pulumi.ComponentResource):
         aws.iam.RolePolicy(
             f"{name}-ecs-run-task-policy",
             role=self.task_role.name,
-            policy=pulumi.Output.all(base_infra.cluster.arn, f"arn:aws:ecs:{aws.get_region().name}:*:task-definition/*").apply(lambda args: f'''{{
+            policy=pulumi.Output.all(
+                bucket_id=base_infra.bucket.id
+            ).apply(lambda args: json.dumps({
                 "Version": "2012-10-17",
                 "Statement": [
-                    {{
+                    {
                         "Effect": "Allow",
                         "Action": [
                             "ecs:RunTask",
                             "iam:PassRole"
                         ],
                         "Resource": "*"
-                    }}
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "s3:GetObject",
+                            "s3:ListBucket"
+                        ],
+                        "Resource": [
+                            f"arn:aws:s3:::{args['bucket_id']}",
+                            f"arn:aws:s3:::{args['bucket_id']}/*"
+                        ]
+                    }
                 ]
-            }}'''),
+            })),
             opts=pulumi.ResourceOptions(parent=self)
         )
 
@@ -154,7 +168,8 @@ class CoreService(pulumi.ComponentResource):
                 ingest_arn=ingestion_task_def_arn,
                 account_id=aws.get_caller_identity().account_id,
                 env=env,
-                sarvam_api_key=pulumi.Config().get_secret("sarvam_api_key") or ""
+                sarvam_api_key=pulumi.Config().get_secret("sarvam_api_key") or "",
+                bucket_name=base_infra.bucket.id
             ).apply(lambda args: f'''[
                 {{
                     "name": "core",
@@ -166,7 +181,8 @@ class CoreService(pulumi.ComponentResource):
                         {{"name": "ECS_CLUSTER_NAME", "value": "{args["cluster_name"]}"}},
                         {{"name": "PRIVATE_SUBNET_IDS", "value": "{args["subnet_ids"]}"}},
                         {{"name": "INGESTION_TASK_DEF_ARN", "value": "{args["ingest_arn"]}"}},
-                        {{"name": "SARVAM_API_KEY", "value": "{args["sarvam_api_key"]}"}}
+                        {{"name": "SARVAM_API_KEY", "value": "{args["sarvam_api_key"]}"}},
+                        {{"name": "S3_BUCKET", "value": "{args["bucket_name"]}"}}
                     ],
                     "logConfiguration": {{
                          "logDriver": "awslogs",

@@ -21,6 +21,7 @@ import {
   Moon,
   LogOut,
   LayoutGrid,
+  HelpCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -86,6 +87,7 @@ const navItems = [
   { title: "Documents", href: "/documents", icon: FileText        },
   { title: "Testing",   href: "/testing",   icon: MessageSquare   },
   { title: "Usage",     href: "/usage",     icon: BarChart3       },
+  { title: "Unknown Queries", href: "/unknown-queries", icon: HelpCircle },
   { title: "Settings",  href: "/settings",  icon: Settings        },
 ];
 

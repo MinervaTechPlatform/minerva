@@ -102,10 +102,9 @@ const usageRecordsTemplate = pgTable("usage_records", {
   id: uuid("id").defaultRandom().primaryKey(),
   sessionId: uuid("session_id").notNull(),
   messageId: uuid("message_id").notNull(),
-  sttSeconds: integer("stt_seconds"),
-  llmTokens: integer("llm_tokens"),
-  ttsCharacters: integer("tts_characters"),
-  costEstimate: text("cost_estimate"),
+  metrics: jsonb("metrics"),
+  latencyMs: jsonb("latency_ms"),
+  costEstimate: integer("cost_estimate"),
   ...auditCols,
 });
 
@@ -221,10 +220,9 @@ export function getBusinessSchema(businessId: string) {
       id: uuid("id").defaultRandom().primaryKey(),
       sessionId: uuid("session_id").notNull(),
       messageId: uuid("message_id").notNull(),
-      sttSeconds: integer("stt_seconds"),
-      llmTokens: integer("llm_tokens"),
-      ttsCharacters: integer("tts_characters"),
-      costEstimate: text("cost_estimate"),
+      metrics: jsonb("metrics"),
+      latencyMs: jsonb("latency_ms"),
+      costEstimate: integer("cost_estimate"),
       ...auditCols,
     }),
 

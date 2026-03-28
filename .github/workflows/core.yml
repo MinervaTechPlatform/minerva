@@ -16,6 +16,12 @@ on:
       - '.github/workflows/core.yml'
 
   workflow_dispatch:
+    inputs:
+      deploy_docker:
+        description: 'Build and Push Docker Image as well?'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -79,6 +85,7 @@ jobs:
           echo "cluster=$(pulumi stack output ecs_cluster_name --stack ${{ env.PULUMI_STACK }})" >> "$GITHUB_OUTPUT"
 
       - name: Build & Push
+        if: github.event_name == 'push' || inputs.deploy_docker == true
         run: |
           REPO=${{ steps.pulumi-outputs.outputs.core_repo }}
           SHA_TAG=${GITHUB_SHA::8}
