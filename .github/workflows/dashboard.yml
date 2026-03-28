@@ -1,0 +1,79 @@
+name: Dashboard Deployment
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'dashboard/**'
+      - 'shared/**'
+      - 'infra/pulumi/**'
+      - '.github/workflows/dashboard.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deploy:
+    name: 🐳 Build & Deploy Dashboard
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+    env:
+      AWS_REGION: us-east-1
+      PULUMI_STACK: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Setup Pulumi
+        uses: pulumi/setup-pulumi@v2
+
+      - name: Get Repo URL and Cluster Name
+        id: pulumi-outputs
+        working-directory: infra/pulumi
+        env:
+          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+        run: |
+          pip install -r requirements.txt
+          pulumi login s3://minerva-infra-state
+          echo "dashboard_repo=$(pulumi stack output dashboard_repo_url --stack ${{ env.PULUMI_STACK }})" >> "$GITHUB_OUTPUT"
+          echo "cluster=$(pulumi stack output ecs_cluster_name --stack ${{ env.PULUMI_STACK }})" >> "$GITHUB_OUTPUT"
+
+      - name: Build & Push
+        run: |
+          REPO=${{ steps.pulumi-outputs.outputs.dashboard_repo }}
+          SHA_TAG=${GITHUB_SHA::8}
+          docker build -t ${REPO}:${SHA_TAG} -t ${REPO}:latest -f infra/docker/Dockerfile.dashboard .
+          docker push ${REPO}:${SHA_TAG}
+          docker push ${REPO}:latest
+
+      - name: Pulumi Deploy & Force Redeploy
+        working-directory: infra/pulumi
+        env:
+          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+        run: |
+          pip install -r requirements.txt
+          pulumi login s3://minerva-infra-state
+          
+          # Inject secrets from GitHub
+          pulumi config set auth_secret "${{ secrets.AUTH_SECRET }}" --secret --stack ${{ env.PULUMI_STACK }}
+          pulumi config set auth_google_id "${{ secrets.AUTH_GOOGLE_ID }}" --secret --stack ${{ env.PULUMI_STACK }}
+          pulumi config set auth_google_secret "${{ secrets.AUTH_GOOGLE_SECRET }}" --secret --stack ${{ env.PULUMI_STACK }}
+          
+          # Deploy updated task definition
+          pulumi up --yes --stack ${{ env.PULUMI_STACK }}
+          
+          # Force redeploy to pick up new image if nothing else changed
+          CLUSTER=$(pulumi stack output ecs_cluster_name --stack ${{ env.PULUMI_STACK }})
+          SERVICE=$(aws ecs list-services --cluster "$CLUSTER" --query "serviceArns[?contains(@, 'dashboard')]" --output text | head -1)
+          aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" --force-new-deployment --no-cli-pager
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
