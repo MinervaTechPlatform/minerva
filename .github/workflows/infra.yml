@@ -6,6 +6,8 @@ on:
     paths:
       - 'infra/**'
 
+  workflow_dispatch:
+
 permissions:
   contents: read
 
