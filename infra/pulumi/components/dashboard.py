@@ -4,7 +4,7 @@ import pulumi_aws as aws
 
 
 class DashboardApp(pulumi.ComponentResource):
-    def __init__(self, name: str, env: str, base_infra, ingestion_worker=None, opts: pulumi.ResourceOptions = None):
+    def __init__(self, name: str, env: str, base_infra, ingestion_worker=None, core_url=None, opts: pulumi.ResourceOptions = None):
         super().__init__("minerva:dashboard:DashboardApp", name, {}, opts)
 
         config = pulumi.Config()
@@ -232,6 +232,7 @@ class DashboardApp(pulumi.ComponentResource):
         # Build ECS env vars — include ingestion details if worker was provided
         ingestion_task_arn = ingestion_worker.task_def_arn if ingestion_worker else pulumi.Output.from_input("")
         ingestion_sg_id = ingestion_worker.ingestion_sg_id if (ingestion_worker and hasattr(ingestion_worker, 'ingestion_sg_id')) else pulumi.Output.from_input("")
+        resolved_core_url = core_url if core_url is not None else pulumi.Output.from_input("")
 
         container_env = pulumi.Output.all(
             db_url=base_infra.db_url,
@@ -246,6 +247,7 @@ class DashboardApp(pulumi.ComponentResource):
             ingestion_task_arn=ingestion_task_arn,
             private_subnet_ids=base_infra.vpc.private_subnet_ids,
             ingestion_sg_id=ingestion_sg_id,
+            core_api_url=resolved_core_url,
         ).apply(lambda args: json.dumps([
             {"name": "NODE_ENV",                "value": "production"},
             {"name": "DATABASE_URL",             "value": args["db_url"]},
@@ -265,6 +267,7 @@ class DashboardApp(pulumi.ComponentResource):
             {"name": "INGESTION_TASK_DEF_ARN",   "value": args["ingestion_task_arn"]},
             {"name": "PRIVATE_SUBNET_IDS",       "value": ",".join(args["private_subnet_ids"])},
             {"name": "ECS_SECURITY_GROUP_ID",    "value": args["ingestion_sg_id"]},
+            {"name": "CORE_API_URL",              "value": args["core_api_url"]},
         ]))
 
         self.task_def = aws.ecs.TaskDefinition(
