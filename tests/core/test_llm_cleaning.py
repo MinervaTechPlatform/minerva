@@ -71,3 +71,50 @@ async def test_llm_component_handles_multiple_think_blocks(mock_resolver_cls, pi
     # Verify both are removed
     assert pipeline_context.llm_response_en == "Hello! How can I help?"
     assert "<think>" not in pipeline_context.llm_response_en
+
+@pytest.mark.asyncio
+@patch("core.pipelines.components.translation_component.ProviderResolver")
+async def test_translation_out_strips_think_blocks(mock_resolver_cls, pipeline_context):
+    from core.pipelines.components.translation_component import TranslationOutComponent
+    
+    mock_resolver = MagicMock()
+    mock_resolver_cls.get_instance.return_value = mock_resolver
+    mock_provider = AsyncMock()
+    mock_resolver.get_provider.return_value = mock_provider
+    
+    # Simulate translation returning a <think> block (or failing to strip it)
+    mock_provider.translate.return_value = "<think>Translated thought</think>Actual translation"
+    
+    pipeline_context.llm_response_en = "Some input"
+    pipeline_context.detected_language = "hi-IN" # Force translation
+    
+    comp = TranslationOutComponent()
+    await comp.execute(pipeline_context)
+    
+    assert pipeline_context.final_response == "Actual translation"
+    assert "<think>" not in pipeline_context.final_response
+
+@pytest.mark.asyncio
+@patch("core.pipelines.components.tts_component.ProviderResolver")
+async def test_tts_component_strips_think_blocks_safety(mock_resolver_cls, pipeline_context):
+    from core.pipelines.components.tts_component import TTSComponent
+    
+    mock_resolver = MagicMock()
+    mock_resolver_cls.get_instance.return_value = mock_resolver
+    mock_provider = AsyncMock()
+    mock_resolver.get_provider.return_value = mock_provider
+    mock_provider.text_to_speech.return_value = b"audio_data"
+    
+    # Set final_response with a <think> block that somehow slipped through
+    pipeline_context.final_response = "<think>Uncleaned thought</think>Speech text"
+    pipeline_context.detected_language = "en-IN"
+    
+    comp = TTSComponent()
+    await comp.execute(pipeline_context)
+    
+    # Verify the input to TTS was cleaned
+    mock_provider.text_to_speech.assert_called_once()
+    args, _ = mock_provider.text_to_speech.call_args
+    assert "Uncleaned thought" not in args[0]
+    assert args[0] == "Speech text"
+    assert pipeline_context.final_response == "Speech text"

@@ -9,6 +9,7 @@ Purpose:
 
 from shared.providers.provider_resolver import ProviderResolver
 from shared.utils.logging import get_logger
+from shared.utils.text_utils import strip_thought_blocks
 from ..pipeline_context import PipelineContext
 
 logger = get_logger("core.pipelines.components.translation")
@@ -73,8 +74,10 @@ class TranslationOutComponent:
         provider = resolver.get_provider("translation", context.business_id)
         
         with context.tracker.measure("Translate:Out"):
-            context.final_response = await provider.translate(
+            result = await provider.translate(
                 context.llm_response_en,
                 "en-IN",
                 lang
             )
+            # Ensure any reasoning blocks are stripped from the translated output
+            context.final_response = strip_thought_blocks(result)

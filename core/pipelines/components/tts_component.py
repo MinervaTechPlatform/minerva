@@ -9,6 +9,7 @@ Purpose:
 from shared.providers.provider_resolver import ProviderResolver
 from shared.exceptions.pipeline_exceptions import ProviderError
 from shared.utils.logging import get_logger
+from shared.utils.text_utils import strip_thought_blocks
 from ..pipeline_context import PipelineContext
 
 logger = get_logger("core.pipelines.components.tts")
@@ -27,6 +28,10 @@ class TTSComponent:
         return True
 
     async def execute(self, context: PipelineContext) -> None:
+        # Final safety cleanup before synthesis
+        if context.final_response:
+            context.final_response = strip_thought_blocks(context.final_response)
+
         if not context.final_response:
             logger.debug("TTS: final_response is empty. Skipping.")
             return
