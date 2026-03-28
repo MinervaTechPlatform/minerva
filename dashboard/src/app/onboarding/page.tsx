@@ -24,20 +24,20 @@ import { Bot, Loader2, Sparkles, ArrowRight, Building2, ChevronRight, Plus, Chec
 // ─── Options ─────────────────────────────────────────────────────────────────
 
 const INDUSTRIES = [
-  { value: "warehouse", label: "Warehouse & Logistics" },
-  { value: "fintech", label: "Fintech" },
-  { value: "real_estate", label: "Real Estate" },
-  { value: "healthcare", label: "Healthcare" },
-  { value: "education", label: "Education" },
-  { value: "custom", label: "Other" },
+  { value: "Warehouse & Logistics", label: "Warehouse & Logistics" },
+  { value: "Fintech", label: "Fintech" },
+  { value: "Real Estate", label: "Real Estate" },
+  { value: "Healthcare", label: "Healthcare" },
+  { value: "Education", label: "Education" },
+  { value: "Other", label: "Other" },
 ];
 
 const GOALS = [
-  { value: "customer_support", label: "Customer Support" },
-  { value: "leads", label: "Lead Generation" },
-  { value: "sales", label: "Sales Assistance" },
-  { value: "onboarding", label: "User Onboarding" },
-  { value: "feedback", label: "Feedback Collection" },
+  { value: "Customer Support", label: "Customer Support" },
+  { value: "Lead Generation", label: "Lead Generation" },
+  { value: "Sales Assistance", label: "Sales Assistance" },
+  { value: "User Onboarding", label: "User Onboarding" },
+  { value: "Feedback Collection", label: "Feedback Collection" },
 ];
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -482,7 +482,9 @@ export default function OnboardingPage() {
                   <Label htmlFor="industry">Industry</Label>
                   <Select value={industry} onValueChange={(v) => setIndustry(v ?? "")} required>
                     <SelectTrigger id="industry">
-                      <SelectValue placeholder="Select industry" />
+                      <SelectValue placeholder="Select industry">
+                        {industry}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {INDUSTRIES.map((i) => (
@@ -498,7 +500,9 @@ export default function OnboardingPage() {
                   <Label htmlFor="goal">Primary Goal</Label>
                   <Select value={goal} onValueChange={(v) => setGoal(v ?? "")} required>
                     <SelectTrigger id="goal">
-                      <SelectValue placeholder="Select goal" />
+                      <SelectValue placeholder="Select goal">
+                        {goal}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {GOALS.map((g) => (

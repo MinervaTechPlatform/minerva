@@ -324,7 +324,9 @@ export default function TestingPage() {
                     onValueChange={handleKeySelect}
                   >
                     <SelectTrigger className="h-8 text-sm max-w-xs">
-                      <SelectValue placeholder="Select an API key…" />
+                      <SelectValue placeholder="Select an API key…">
+                        {selectedKey?.name}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {apiKeys.map((key) => (
