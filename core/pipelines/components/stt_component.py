@@ -28,7 +28,7 @@ class STTComponent:
 
     async def should_execute(self, context: PipelineContext) -> bool:
         """Skip STT if input was text."""
-        return bool(context.input_audio)
+        return bool(context.input_audio or context.input_text)
 
     async def execute(self, context: PipelineContext) -> None:
         """
