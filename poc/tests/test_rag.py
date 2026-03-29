@@ -29,7 +29,7 @@ class TestRAGRetrieval(unittest.TestCase):
         mock_model.encode.return_value = np.array([[0.1] * 384]) # dummy vector
         
         # Execute
-        results = retrieve("test query", top_k=1)
+        results = retrieve("test query", "test_index", top_k=1)
         
         # Assert
         self.assertEqual(len(results), 1)
@@ -54,7 +54,7 @@ class TestRAGRetrieval(unittest.TestCase):
         mock_model.encode.return_value = np.array([[0.1] * 384])
         
         # Execute
-        results = retrieve("unknown query", top_k=1)
+        results = retrieve("unknown query", "test_index", top_k=1)
         
         # Assert
         self.assertEqual(len(results), 1)

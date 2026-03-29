@@ -35,11 +35,13 @@ async def test_pipeline_runner_success(pipeline_context):
     comp1 = MagicMock()
     comp1.name = "comp1"
     comp1.is_critical = True
+    comp1.should_execute = AsyncMock(return_value=True)
     comp1.execute = AsyncMock()
 
     comp2 = MagicMock()
     comp2.name = "comp2"
     comp2.is_critical = False
+    comp2.should_execute = AsyncMock(return_value=True)
     comp2.execute = AsyncMock()
 
     runner = PipelineRunner([comp1, comp2])
@@ -54,6 +56,7 @@ async def test_pipeline_runner_critical_failure(pipeline_context):
     comp_fail = MagicMock()
     comp_fail.name = "fail_comp"
     comp_fail.is_critical = True
+    comp_fail.should_execute = AsyncMock(return_value=True)
     comp_fail.execute = AsyncMock(side_effect=ValueError("Boom"))
 
     runner = PipelineRunner([comp_fail])
@@ -69,11 +72,13 @@ async def test_pipeline_runner_non_critical_failure(pipeline_context):
     comp_fail = MagicMock()
     comp_fail.name = "soft_fail"
     comp_fail.is_critical = False
+    comp_fail.should_execute = AsyncMock(return_value=True)
     comp_fail.execute = AsyncMock(side_effect=ValueError("Soft Boom"))
 
     comp_next = MagicMock()
     comp_next.name = "next_comp"
     comp_next.is_critical = True
+    comp_next.should_execute = AsyncMock(return_value=True)
     comp_next.execute = AsyncMock()
 
     runner = PipelineRunner([comp_fail, comp_next])

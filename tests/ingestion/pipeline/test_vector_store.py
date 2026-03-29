@@ -66,6 +66,7 @@ class TestBuildIndex:
 # ── save_index ────────────────────────────────────────────────────────────────
 
 class TestSaveIndex:
+    @pytest.mark.asyncio
     async def test_uploads_two_files_to_storage(self, embeddings_3x4, metadata_3, mock_storage):
         index = build_index(embeddings_3x4, metadata_3)
         business_id = str(uuid.uuid4())
@@ -79,12 +80,14 @@ class TestSaveIndex:
 # ── archive_previous_index ────────────────────────────────────────────────────
 
 class TestArchivePreviousIndex:
+    @pytest.mark.asyncio
     async def test_copies_both_files(self, mock_storage):
         business_id = "business-1"
         job_id = "job-1"
         await archive_previous_index(business_id, job_id)
         assert mock_storage.copy_file.call_count == 2
 
+    @pytest.mark.asyncio
     async def test_copy_failure_does_not_raise(self, mock_storage):
         mock_storage.copy_file.side_effect = Exception("Copy failed")
         # Should not raise — just logs a warning
@@ -93,11 +96,13 @@ class TestArchivePreviousIndex:
 # ── load_index ────────────────────────────────────────────────────────────────
 
 class TestLoadIndex:
+    @pytest.mark.asyncio
     async def test_load_raises_on_storage_failure(self, mock_storage):
         mock_storage.download_file.side_effect = Exception("Storage not found")
         with pytest.raises(IngestionError, match="Failed to download"):
             await load_index("business-1")
 
+    @pytest.mark.asyncio
     async def test_load_returns_index_and_metadata(self, embeddings_3x4, metadata_3, mock_storage):
         """
         Save a real index to a tempdir and mock download to use that dir.
