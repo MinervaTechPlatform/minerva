@@ -122,6 +122,7 @@ class ProviderResolver:
         category: str,
         current_provider_name: str,
         business_id: str | None = None,
+        mode: str = "quick"
     ) -> object | None:
         """
         Return the fallback provider for a category (used after primary fails).
@@ -134,7 +135,7 @@ class ProviderResolver:
         Returns:
             Alternate provider instance, or None if no fallback configured.
         """
-        alt_name = self._resolve_fallback_name(category, business_id)
+        alt_name = self._resolve_fallback_name(category, business_id, mode)
         if alt_name is None or alt_name == current_provider_name:
             return None
         try:
@@ -149,6 +150,10 @@ class ProviderResolver:
     def get_provider_name(self, category: str, business_id: str | None = None, mode: str = "quick") -> str:
         """Return the canonical name of the active primary provider."""
         return self._resolve_primary_name(category, business_id, mode)
+
+    def get_alternate_provider_name(self, category: str, business_id: str | None = None, mode: str = "quick") -> str | None:
+        """Return the canonical name of the active alternate provider."""
+        return self._resolve_fallback_name(category, business_id, mode)
 
     # ── Internal resolution ───────────────────────────────────────────────────
 
@@ -179,9 +184,23 @@ class ProviderResolver:
         return default
 
     def _resolve_fallback_name(
-        self, category: str, business_id: str | None
+        self, category: str, business_id: str | None, mode: str = "quick"
     ) -> str | None:
         """Determine fallback provider name from system settings."""
+        # Special logic for Dual-Mode LLM
+        if category == "llm":
+            if mode == "deep":
+                # Deep Mode: Primary was Fallback (Groq), so Fallback is Primary (Sarvam)
+                default_primary, _ = _SYSTEM_DEFAULTS.get(category, ("sarvam", None))
+                # Check system setting for default_llm_provider
+                primary_setting = self._get_system_setting("default_llm_provider")
+                return str(primary_setting) if primary_setting else default_primary
+            else:
+                # Quick Mode (default): Primary was Sarvam, so Fallback is Groq
+                _, default_fallback = _SYSTEM_DEFAULTS.get(category, ("sarvam", "groq"))
+                fb_setting = self._get_system_setting("fallback_llm_provider")
+                return str(fb_setting) if fb_setting else default_fallback
+
         setting_key = f"fallback_{category}_provider"
         name = self._get_system_setting(setting_key)
         if name:

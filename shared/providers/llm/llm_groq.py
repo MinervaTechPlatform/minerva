@@ -23,7 +23,7 @@ class LLMGroq(LLMProvider):
         self.api_key = os.environ.get("GROQ_API_KEY")
         if not self.api_key:
             raise EnvironmentError("GROQ_API_KEY not set")
-        self.model = os.environ.get("GROQ_MODEL", "llama-3.1-8b-instant")
+        self.model = os.environ.get("GROQ_MODEL", "llama-4-scout-17b-16e-instruct")
         self.url = "https://api.groq.com/openai/v1/chat/completions"
 
     @property

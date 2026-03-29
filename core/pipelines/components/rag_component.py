@@ -117,10 +117,24 @@ class RAGComponent:
         llm = resolver.get_provider("llm", context.business_id, mode="quick")
         
         with context.tracker.measure("RAG:Classify"):
-            choice = await llm.chat_completion(
-                "You are a precise scope classifier.",
-                prompt,
-                max_tokens=10
-            )
-        
+            try:
+                choice = await llm.chat_completion(
+                    "You are a precise scope classifier.",
+                    prompt,
+                    max_tokens=10
+                )
+            except Exception as exc:
+                logger.warning(f"RAG: Scope classification primary failed: {exc}. Trying fallback...")
+                alt_llm = resolver.get_alternate_provider("llm", llm.provider_name, context.business_id, mode="quick")
+                if alt_llm:
+                    choice = await alt_llm.chat_completion(
+                        "You are a precise scope classifier.",
+                        prompt,
+                        max_tokens=10
+                    )
+                else:
+                    # If everything fails, assume business as usual (industry specific)
+                    # or handle as error. For non-critical RAG, we continue.
+                    choice = "INDUSTRY_SPECIFIC"
+
         context.is_industry_specific = "INDUSTRY_SPECIFIC" in choice.upper()

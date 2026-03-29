@@ -102,7 +102,7 @@ class LLMComponent:
             # Actually, let's let PipelineRunner handle the catch-and-raise
             # but we can try alternate manually if we want more control.
             logger.error(f"LLM primary failed: {exc}")
-            alt_llm = resolver.get_alternate_provider("llm", llm.provider_name, context.business_id)
+            alt_llm = resolver.get_alternate_provider("llm", llm.provider_name, context.business_id, mode="deep")
             if not alt_llm:
                 raise
             with context.tracker.measure("LLM:Generate_Fallback"):
