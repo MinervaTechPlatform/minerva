@@ -1,0 +1,15 @@
+{
+  "stt": {
+    "quick": { "primary": "sarvam", "fallback": "deepgram" }
+  },
+  "tts": {
+    "quick": { "primary": "sarvam", "fallback": "elevenlabs" }
+  },
+  "llm": {
+    "quick": { "primary": "groq", "fallback": "sarvam" },
+    "deep": { "primary": "groq", "fallback": "sarvam" }
+  },
+  "translation": {
+    "quick": { "primary": "sarvam", "fallback": null }
+  }
+}

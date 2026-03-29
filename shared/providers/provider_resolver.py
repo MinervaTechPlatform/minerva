@@ -26,34 +26,33 @@ System setting keys:
     default_translation_provider
 """
 
-from __future__ import annotations
-
+import json
+import os
 from typing import Optional
 
 from shared.utils.logging import get_logger
 
 logger = get_logger("shared.providers.provider_resolver")
 
-# ── Registry maps: name → lazy import path ────────────────────────────────────
-
-_STT_REGISTRY: dict[str, tuple[str, str]] = {
+# Registry maps: name → lazy import path
+_STT_REGISTRY = {
     "sarvam":    ("shared.providers.stt.stt_sarvam",       "STTSarvam"),
     "deepgram":  ("shared.providers.stt.stt_deepgram",     "STTDeepgram"),
-    "elevenlabs":("shared.providers.stt.stt_deepgram",     "STTDeepgram"),  # ElevenLabs doesn't do STT; map to deepgram
+    "elevenlabs":("shared.providers.stt.stt_deepgram",     "STTDeepgram"),
 }
 
-_TTS_REGISTRY: dict[str, tuple[str, str]] = {
+_TTS_REGISTRY = {
     "sarvam":    ("shared.providers.tts.tts_sarvam",       "TTSSarvam"),
     "elevenlabs":("shared.providers.tts.tts_elevenlabs",   "TTSElevenLabs"),
 }
 
-_LLM_REGISTRY: dict[str, tuple[str, str]] = {
+_LLM_REGISTRY = {
     "sarvam":    ("shared.providers.llm.llm_sarvam",       "LLMSarvam"),
     "openai":    ("shared.providers.llm.llm_openai",       "LLMOpenAI"),
     "groq":      ("shared.providers.llm.llm_groq",         "LLMGroq"),
 }
 
-_TRANSLATION_REGISTRY: dict[str, tuple[str, str]] = {
+_TRANSLATION_REGISTRY = {
     "sarvam":    ("shared.providers.translation.translation_sarvam", "TranslationSarvam"),
 }
 
@@ -62,14 +61,6 @@ _CATEGORY_REGISTRIES = {
     "tts":         _TTS_REGISTRY,
     "llm":         _LLM_REGISTRY,
     "translation": _TRANSLATION_REGISTRY,
-}
-
-# Hard-coded defaults (overridden by system_settings at runtime)
-_SYSTEM_DEFAULTS = {
-    "stt":         ("sarvam",  "deepgram"),
-    "tts":         ("sarvam",  "elevenlabs"),
-    "llm":         ("sarvam",  "groq"),
-    "translation": ("sarvam",  None),
 }
 
 
@@ -88,6 +79,18 @@ class ProviderResolver:
     def __init__(self) -> None:
         # Cache of instantiated providers: (category, name) → provider instance
         self._cache: dict[tuple[str, str], object] = {}
+        self._config: dict = {}
+        self._load_config()
+
+    def _load_config(self) -> None:
+        """Load provider configuration from JSON file."""
+        config_path = os.path.join(os.path.dirname(__file__), "provider_config.json")
+        try:
+            with open(config_path, "r") as f:
+                self._config = json.load(f)
+            logger.info(f"ProviderResolver: Successfully loaded provider_config.json")
+        except Exception as exc:
+            logger.error(f"ProviderResolver: Failed to load provider_config.json: {exc}")
 
     # ── Singleton ─────────────────────────────────────────────────────────────
 
@@ -159,54 +162,40 @@ class ProviderResolver:
 
     def _resolve_primary_name(self, category: str, business_id: str | None, mode: str = "quick") -> str:
         """Determine primary provider name from config or system settings."""
-        # Special logic for Dual-Mode LLM
-        if category == "llm" and mode == "deep":
-            # Deep mode defaults to fallback/alternate if set, otherwise primary
-            _, fallback = _SYSTEM_DEFAULTS.get(category, ("sarvam", None))
-            # Check system setting for fallback_llm_provider
-            fb_setting = self._get_system_setting("fallback_llm_provider")
-            return str(fb_setting) if fb_setting else (fallback or "sarvam")
-
         # 1. Per-business override
         if business_id:
             overrides = self._get_business_overrides(business_id)
             if category in overrides:
                 return overrides[category]
 
-        # 2. System settings
+        # 2. System settings (only if not mode-specific or as default)
         setting_key = f"default_{category}_provider"
         name = self._get_system_setting(setting_key)
         if name:
             return str(name)
 
-        # 3. Hard-coded default
-        default, _ = _SYSTEM_DEFAULTS.get(category, ("sarvam", None))
-        return default
+        # 3. Mode-aware defaults from provider_config.json
+        mode_config = self._config.get(category, {}).get(mode, {})
+        primary = mode_config.get("primary")
+        if primary:
+            return primary
+
+        # 4. Global fallback default
+        return "sarvam"
 
     def _resolve_fallback_name(
         self, category: str, business_id: str | None, mode: str = "quick"
     ) -> str | None:
-        """Determine fallback provider name from system settings."""
-        # Special logic for Dual-Mode LLM
-        if category == "llm":
-            if mode == "deep":
-                # Deep Mode: Primary was Fallback (Groq), so Fallback is Primary (Sarvam)
-                default_primary, _ = _SYSTEM_DEFAULTS.get(category, ("sarvam", None))
-                # Check system setting for default_llm_provider
-                primary_setting = self._get_system_setting("default_llm_provider")
-                return str(primary_setting) if primary_setting else default_primary
-            else:
-                # Quick Mode (default): Primary was Sarvam, so Fallback is Groq
-                _, default_fallback = _SYSTEM_DEFAULTS.get(category, ("sarvam", "groq"))
-                fb_setting = self._get_system_setting("fallback_llm_provider")
-                return str(fb_setting) if fb_setting else default_fallback
-
+        """Determine fallback provider name."""
+        # 1. System settings
         setting_key = f"fallback_{category}_provider"
         name = self._get_system_setting(setting_key)
         if name:
             return str(name)
-        _, fallback = _SYSTEM_DEFAULTS.get(category, ("sarvam", None))
-        return fallback
+
+        # 2. Mode-aware defaults from provider_config.json
+        mode_config = self._config.get(category, {}).get(mode, {})
+        return mode_config.get("fallback")
 
     def _get_business_overrides(self, business_id: str) -> dict[str, str]:
         """Read provider_overrides from ConfigCache for this business."""
