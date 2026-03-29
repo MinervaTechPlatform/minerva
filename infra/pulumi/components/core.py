@@ -169,6 +169,9 @@ class CoreService(pulumi.ComponentResource):
                 account_id=aws.get_caller_identity().account_id,
                 env=env,
                 sarvam_api_key=pulumi.Config().get_secret("sarvam_api_key") or "",
+                groq_api_key=pulumi.Config().get_secret("groq_api_key") or "",
+                groq_model=pulumi.Config().get("groq_model") or "llama-3.1-8b-instant",
+                jwt_secret=pulumi.Config().get_secret("jwt_secret") or "",
                 bucket_name=base_infra.bucket.id
             ).apply(lambda args: f'''[
                 {{
@@ -182,6 +185,9 @@ class CoreService(pulumi.ComponentResource):
                         {{"name": "PRIVATE_SUBNET_IDS", "value": "{args["subnet_ids"]}"}},
                         {{"name": "INGESTION_TASK_DEF_ARN", "value": "{args["ingest_arn"]}"}},
                         {{"name": "SARVAM_API_KEY", "value": "{args["sarvam_api_key"]}"}},
+                        {{"name": "GROQ_API_KEY", "value": "{args["groq_api_key"]}"}},
+                        {{"name": "GROQ_MODEL", "value": "{args["groq_model"]}"}},
+                        {{"name": "JWT_SECRET", "value": "{args["jwt_secret"]}"}},
                         {{"name": "S3_BUCKET", "value": "{args["bucket_name"]}"}}
                     ],
                     "logConfiguration": {{

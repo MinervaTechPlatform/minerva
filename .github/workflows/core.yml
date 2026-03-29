@@ -104,6 +104,9 @@ jobs:
           # Inject secrets from GitHub
           pulumi config set sarvam_api_key "${{ secrets.SARVAM_API_KEY }}" --secret --stack ${{ env.PULUMI_STACK }}
           pulumi config set auth_secret "${{ secrets.AUTH_SECRET }}" --secret --stack ${{ env.PULUMI_STACK }}
+          pulumi config set groq_api_key "${{ secrets.GROQ_API_KEY }}" --secret --stack ${{ env.PULUMI_STACK }}
+          pulumi config set groq_model "llama-3.1-8b-instant" --stack ${{ env.PULUMI_STACK }}
+          pulumi config set jwt_secret "${{ secrets.JWT_SECRET }}" --secret --stack ${{ env.PULUMI_STACK }}
           pulumi config set auth_google_id "${{ secrets.AUTH_GOOGLE_ID }}" --secret --stack ${{ env.PULUMI_STACK }}
           pulumi config set auth_google_secret "${{ secrets.AUTH_GOOGLE_SECRET }}" --secret --stack ${{ env.PULUMI_STACK }}
           
