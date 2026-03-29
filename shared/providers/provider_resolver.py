@@ -99,7 +99,7 @@ class ProviderResolver:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def get_provider(self, category: str, business_id: str | None = None) -> object:
+    def get_provider(self, category: str, business_id: str | None = None, mode: str = "quick") -> object:
         """
         Return the primary provider instance for a category.
 
@@ -114,7 +114,7 @@ class ProviderResolver:
         Raises:
             ValueError: If category or provider name is not registered.
         """
-        provider_name = self._resolve_primary_name(category, business_id)
+        provider_name = self._resolve_primary_name(category, business_id, mode)
         return self._get_or_create(category, provider_name)
 
     def get_alternate_provider(
@@ -146,14 +146,22 @@ class ProviderResolver:
             )
             return None
 
-    def get_provider_name(self, category: str, business_id: str | None = None) -> str:
+    def get_provider_name(self, category: str, business_id: str | None = None, mode: str = "quick") -> str:
         """Return the canonical name of the active primary provider."""
-        return self._resolve_primary_name(category, business_id)
+        return self._resolve_primary_name(category, business_id, mode)
 
     # ── Internal resolution ───────────────────────────────────────────────────
 
-    def _resolve_primary_name(self, category: str, business_id: str | None) -> str:
+    def _resolve_primary_name(self, category: str, business_id: str | None, mode: str = "quick") -> str:
         """Determine primary provider name from config or system settings."""
+        # Special logic for Dual-Mode LLM
+        if category == "llm" and mode == "deep":
+            # Deep mode defaults to fallback/alternate if set, otherwise primary
+            _, fallback = _SYSTEM_DEFAULTS.get(category, ("sarvam", None))
+            # Check system setting for fallback_llm_provider
+            fb_setting = self._get_system_setting("fallback_llm_provider")
+            return str(fb_setting) if fb_setting else (fallback or "sarvam")
+
         # 1. Per-business override
         if business_id:
             overrides = self._get_business_overrides(business_id)

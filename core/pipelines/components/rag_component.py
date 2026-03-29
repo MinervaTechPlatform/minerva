@@ -114,7 +114,7 @@ class RAGComponent:
         )
 
         resolver = ProviderResolver.get_instance()
-        llm = resolver.get_provider("llm", context.business_id)
+        llm = resolver.get_provider("llm", context.business_id, mode="quick")
         
         with context.tracker.measure("RAG:Classify"):
             choice = await llm.chat_completion(

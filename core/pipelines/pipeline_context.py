@@ -32,6 +32,9 @@ class PipelineContext:
     # Language context
     requested_language: str = "unknown"  # BCP-47 hint
     
+    # Selection Mode (quick vs deep)
+    response_mode: str = "quick" 
+    
     # ── State / Intermediate ──────────────────────────────────────────────────
     
     # Transcription results

@@ -88,7 +88,7 @@ class LLMComponent:
 
         # 3. Call LLM
         resolver = ProviderResolver.get_instance()
-        llm = resolver.get_provider("llm", context.business_id)
+        llm = resolver.get_provider("llm", context.business_id, mode="deep")
 
         try:
             with context.tracker.measure("LLM:Generate"):

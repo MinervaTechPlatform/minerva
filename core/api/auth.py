@@ -14,7 +14,7 @@ from shared.utils.logging import get_logger
 logger = get_logger("core.api.auth")
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
-JWT_SECRET = os.environ.get("JWT_SECRET", "minerva-dev-secret-change-me")
+JWT_SECRET = os.environ.get("JWT_SECRET", "minerva-dev-secret-key-must-be-at-least-32-bytes-long")
 JWT_ALGORITHM = "HS256"
 
 
