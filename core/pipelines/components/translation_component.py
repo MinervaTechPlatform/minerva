@@ -26,6 +26,16 @@ class TranslationInComponent:
     def is_critical(self) -> bool:
         return False
 
+    async def should_execute(self, context: PipelineContext) -> bool:
+        """Skip translation if transcript is empty or already English."""
+        if not context.transcript:
+            return False
+        lang = str(context.detected_language).lower().strip()
+        if "en-" in lang or lang == "en":
+            context.transcript_en = context.transcript
+            return False
+        return True
+
     async def execute(self, context: PipelineContext) -> None:
         if not context.transcript:
             return
@@ -58,6 +68,16 @@ class TranslationOutComponent:
     @property
     def is_critical(self) -> bool:
         return False
+
+    async def should_execute(self, context: PipelineContext) -> bool:
+        """Skip translation if LLM response is empty or already English."""
+        if not context.llm_response_en:
+            return False
+        lang = str(context.detected_language).lower().strip()
+        if "en-" in lang or lang == "en":
+            context.final_response = context.llm_response_en
+            return False
+        return True
 
     async def execute(self, context: PipelineContext) -> None:
         if not context.llm_response_en:

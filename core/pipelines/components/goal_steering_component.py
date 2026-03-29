@@ -25,6 +25,10 @@ class GoalSteeringComponent:
     def is_critical(self) -> bool:
         return False
 
+    async def should_execute(self, context: PipelineContext) -> bool:
+        """Goal steering runs to evaluate conversational progress."""
+        return True
+
     async def execute(self, context: PipelineContext) -> None:
         goal_text = context.client_config.get("goal_description", "Assist the customer with their questions.")
         

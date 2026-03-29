@@ -31,6 +31,10 @@ class MemoryComponent:
     def is_critical(self) -> bool:
         return False
 
+    async def should_execute(self, context: PipelineContext) -> bool:
+        """Memory logic always runs to maintain session state."""
+        return True
+
     async def execute(self, context: PipelineContext) -> None:
         session_repo = SessionRepository(context.schema_name)
         message_repo = MessageRepository(context.schema_name)

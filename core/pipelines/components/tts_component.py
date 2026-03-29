@@ -27,6 +27,12 @@ class TTSComponent:
         """TTS failure is considered critical for voice channels."""
         return True
 
+    async def should_execute(self, context: PipelineContext) -> bool:
+        """Skip TTS if input was text (assuming text-to-text flow)."""
+        if context.input_text and not context.input_audio:
+            return False
+        return True
+
     async def execute(self, context: PipelineContext) -> None:
         # Final safety cleanup before synthesis
         if context.final_response:

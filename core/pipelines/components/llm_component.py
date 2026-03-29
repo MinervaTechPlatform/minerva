@@ -33,6 +33,10 @@ class LLMComponent:
     def is_critical(self) -> bool:
         return True
 
+    async def should_execute(self, context: PipelineContext) -> bool:
+        """LLM generation is the core of the pipeline."""
+        return True
+
     async def execute(self, context: PipelineContext) -> None:
         # 1. Handle Out-of-Scope (Case 1 from POC)
         if not context.is_industry_specific and not context.info_available:

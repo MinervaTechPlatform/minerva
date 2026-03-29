@@ -26,19 +26,23 @@ class STTComponent:
         """STT is critical for voice input."""
         return True
 
+    async def should_execute(self, context: PipelineContext) -> bool:
+        """Skip STT if input was text."""
+        return bool(context.input_audio)
+
     async def execute(self, context: PipelineContext) -> None:
         """
-        Transcribe the input audio. Skipping if only text was provided.
+        Transcribe the input audio.
         """
         if not context.input_audio:
+            # This should technically be handled by should_execute, 
+            # but we keep a safety check if input_text is present.
             if context.input_text:
                 context.transcript = context.input_text
-                context.transcript_en = context.input_text  # Assume EN if text
+                context.transcript_en = context.input_text
                 context.detected_language = "en-IN"
-                logger.debug("STT: input_audio missing, using input_text as transcript")
                 return
-            else:
-                raise ValueError("PipelineContext has no input (audio or text)")
+            raise ValueError("PipelineContext has no input (audio or text)")
 
         resolver = ProviderResolver.get_instance()
         provider = resolver.get_provider("stt", context.business_id)

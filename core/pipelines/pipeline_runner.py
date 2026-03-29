@@ -33,6 +33,8 @@ class PipelineComponent(Protocol):
     @property
     def is_critical(self) -> bool: ...
     
+    async def should_execute(self, context: PipelineContext) -> bool: ...
+    
     async def execute(self, context: PipelineContext) -> None: ...
 
 
@@ -58,6 +60,10 @@ class PipelineRunner:
             component_log_name = f"Component:{component.name}"
             
             try:
+                if not await component.should_execute(context):
+                    logger.debug(f"Skipping {component_log_name} (should_execute=False)")
+                    continue
+
                 logger.debug(f"Executing {component_log_name}")
                 await component.execute(context)
                 

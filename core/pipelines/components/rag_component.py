@@ -39,6 +39,10 @@ class RAGComponent:
     def is_critical(self) -> bool:
         return False
 
+    async def should_execute(self, context: PipelineContext) -> bool:
+        """RAG should run if transcript is present to provide context."""
+        return bool(context.transcript_en)
+
     async def execute(self, context: PipelineContext) -> None:
         if not context.transcript_en:
             return
